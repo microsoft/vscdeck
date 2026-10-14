@@ -210,7 +210,83 @@ internal static class Program
                 "Large title-bar controls have no tooltips");
             Check(tileButtons.All(b => Math.Abs(b.ActualWidth * dpi.DpiScaleX - 64) < .1 &&
                 Math.Abs(b.ActualHeight * dpi.DpiScaleY - 64) < .1), "All large buttons are exactly 64 x 64 physical pixels");
-            Check(tileButtons.Any(b => ((TextBlock)b.Content).Text.Contains("Running")), "Real live agent session displays Running");
+            var runningButton = tileButtons.First(b =>
+                b.Content is TextBlock label && label.Text.Contains("Running"));
+            Check(runningButton is not null, "Real live agent session displays Running");
+            Check(DeckWindow.RunningPulseCycleMilliseconds == 1200 &&
+                runningButton!.Template?.FindName("RunningGlow", runningButton) is Border
+                    { HasAnimatedProperties: true, Background: RadialGradientBrush },
+                "Running button uses a prominent animated lamp glow on a 1200-millisecond cycle");
+            Check(tileButtons.Where(b => b != runningButton).All(b =>
+                    b.Template?.FindName("RunningGlow", b) is Border { HasAnimatedProperties: false, Opacity: 0 }),
+                "Non-running lamp buttons do not pulse");
+            var independentlyPulsingButtons = tileButtons.Where(button => button != runningButton).Take(2).ToArray();
+            DeckWindow.SetRunningPulse(independentlyPulsingButtons[0], true);
+            Check(independentlyPulsingButtons[0].Template.FindName("RunningGlow",
+                    independentlyPulsingButtons[0]) is Border { HasAnimatedProperties: true } &&
+                independentlyPulsingButtons[1].Template.FindName("RunningGlow",
+                    independentlyPulsingButtons[1]) is Border { HasAnimatedProperties: false },
+                "Starting one button's blue pulse does not start another button's animation clock");
+            DeckWindow.SetRunningPulse(independentlyPulsingButtons[1], true);
+            Check(independentlyPulsingButtons.All(button =>
+                    button.Template.FindName("RunningGlow", button) is Border { HasAnimatedProperties: true }),
+                "Each running button owns and starts its own blue pulse clock");
+            foreach (var button in independentlyPulsingButtons) DeckWindow.SetRunningPulse(button, false);
+            static double Luminance(Color color) => .2126 * color.R + .7152 * color.G + .0722 * color.B;
+            Check(Math.Abs(Luminance(DeckWindow.IdleLampColor) - Luminance(DeckWindow.RunningLampColor)) < 2,
+                "Idle green matches the perceived brightness of the running lamp's dark-blue state");
+            Check(Math.Abs(Luminance(DeckWindow.QuestionLampColor) - Luminance(DeckWindow.RunningLampColor)) < 2,
+                "Question amber matches the perceived brightness of the other dark lamp states");
+            Check(tileButtons.Where(button => button.Content is TextBlock label &&
+                    label.Text.Contains("Question")).All(button =>
+                    button.Content is TextBlock { Foreground: SolidColorBrush textBrush } &&
+                    textBrush.Color == Colors.White),
+                "Question buttons use white text against the dark amber lamp");
+            Check(DeckWindow.UpdateCompletionPending(false, VSCDeck.Core.Activity.Running, VSCDeck.Core.Activity.Idle, false) &&
+                DeckWindow.UpdateCompletionPending(true, VSCDeck.Core.Activity.Idle, VSCDeck.Core.Activity.Idle, false) &&
+                !DeckWindow.UpdateCompletionPending(true, VSCDeck.Core.Activity.Idle, VSCDeck.Core.Activity.Idle, true) &&
+                !DeckWindow.UpdateCompletionPending(false, VSCDeck.Core.Activity.Unknown, VSCDeck.Core.Activity.Idle, false),
+                "Completion blip latches only after running becomes idle and clears when its window gains focus");
+            Check(DeckWindow.GetStateText(VSCDeck.Core.Activity.Idle, true, true) == "Done" &&
+                DeckWindow.GetStateText(VSCDeck.Core.Activity.Idle, true, false) == "Idle" &&
+                DeckWindow.GetStateText(VSCDeck.Core.Activity.Idle, false, true) == "Idle",
+                "Compact completion label says Done until focus acknowledgement restores Idle");
+            var idleButton = tileButtons.First(button => button != runningButton);
+            DeckWindow.SetCompletionBlip(idleButton, true);
+            Check(DeckWindow.AttentionBlipOnMilliseconds == 50 &&
+                DeckWindow.AttentionBlipCycleMilliseconds == 1500 &&
+                idleButton.Template.FindName("CompletionGlow", idleButton) is Border
+                    { HasAnimatedProperties: true, Background: RadialGradientBrush completionBrush } &&
+                completionBrush.GradientStops.Any(stop => stop.Color.G > stop.Color.R && stop.Color.G > stop.Color.B),
+                "Completed button uses a repeating 50-millisecond green blip with a 1.45-second off state");
+            DeckWindow.SetCompletionBlip(idleButton, false);
+            Check(idleButton.Template.FindName("CompletionGlow", idleButton) is Border
+                    { HasAnimatedProperties: false, Opacity: 0 },
+                "Acknowledging completion removes the green blip");
+            DeckWindow.SetQuestionBlip(idleButton, true);
+            Check(idleButton.Template.FindName("QuestionGlow", idleButton) is Border
+                    { HasAnimatedProperties: true, Background: RadialGradientBrush questionBrush } &&
+                questionBrush.GradientStops.Any(stop => stop.Color.R > stop.Color.B && stop.Color.G > stop.Color.B),
+                "Question button uses its own repeating 50-millisecond yellow blip");
+            DeckWindow.SetQuestionBlip(idleButton, false);
+            Check(idleButton.Template.FindName("QuestionGlow", idleButton) is Border
+                    { HasAnimatedProperties: false, Opacity: 0 },
+                "Resolving a question removes its yellow blip");
+            var independentlyBlippingButtons = tileButtons.Where(button => button != runningButton).Take(2).ToArray();
+            DeckWindow.SetCompletionBlip(independentlyBlippingButtons[0], true);
+            Check(independentlyBlippingButtons[0].Template.FindName("CompletionGlow",
+                    independentlyBlippingButtons[0]) is Border { HasAnimatedProperties: true } &&
+                independentlyBlippingButtons[1].Template.FindName("QuestionGlow",
+                    independentlyBlippingButtons[1]) is Border { HasAnimatedProperties: false },
+                "Starting one button's blip does not start another button's cycle");
+            DeckWindow.SetQuestionBlip(independentlyBlippingButtons[1], true);
+            Check(independentlyBlippingButtons[0].Template.FindName("CompletionGlow",
+                    independentlyBlippingButtons[0]) is Border { HasAnimatedProperties: true } &&
+                independentlyBlippingButtons[1].Template.FindName("QuestionGlow",
+                    independentlyBlippingButtons[1]) is Border { HasAnimatedProperties: true },
+                "Each button starts its blip cycle independently when its event is detected");
+            DeckWindow.SetCompletionBlip(independentlyBlippingButtons[0], false);
+            DeckWindow.SetQuestionBlip(independentlyBlippingButtons[1], false);
             Check(tileButtons.All(b => b.Background is LinearGradientBrush { GradientStops.Count: 4 } &&
                 b.Template.FindName("GlassSheen", b) is Border { CornerRadius.TopLeft: > 0 }),
                 "Large buttons have rounded glass surfaces, state gradients, and a separate sheen");

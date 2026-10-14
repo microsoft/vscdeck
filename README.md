@@ -7,12 +7,25 @@ There is no public network service and nothing is uploaded to external services.
 
 ## Using the panel
 
-- **Green**: all associated live sessions are idle. The button says **Idle**.
+- **Dark green**: all associated live sessions are idle. The button says
+  **Idle**.
+- **Green blip**: a running agent has completed. Its button flashes bright
+  green for 50 milliseconds, then remains dark for 1.45 seconds. The blip
+  repeats until that VS Code window gains focus, whether directly, by clicking
+  its button, or by using its hotkey. Compact view says **Done** while this
+  acknowledgement is pending, then returns to **Idle** after focus.
 - **Blue**: at least one session is running.
-- **Flashing yellow**: any session has an unanswered question or permission prompt.
+- **Yellow blip**: a session has an unanswered question or permission prompt.
+  Its deep amber off state is balanced against the other dark lamp colors, and
+  it uses the same 50-millisecond-on, 1.45-second-off cycle until the question
+  is answered.
 - **Gray**: workspace/status cannot be determined, or telemetry cannot be read.
 - Buttons use rounded glass surfaces, subtle state-colored gradients, a top
-  sheen, and hover/pressed highlights at both sizes without changing status colors.
+  sheen, and hover/pressed highlights at both sizes without changing status
+  colors. Each button owns its animation clocks. A running button starts its
+  own prominent 1.2-second blue pulse when work is detected. Green and yellow
+  blips start when their individual completion or question event is detected,
+  so buttons do not animate in lockstep.
 - Hover a button for the workspace, every session, activity text, and questions.
   At 64 pixels, active session titles appear on the button; at 32 pixels, the
   button displays its position, state, and active-session count.

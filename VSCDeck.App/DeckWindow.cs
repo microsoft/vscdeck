@@ -8,6 +8,7 @@ using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using System.Windows.Data;
 using System.Windows.Threading;
 using VSCDeck.Core;
@@ -17,6 +18,12 @@ namespace VSCDeck.App;
 public sealed class DeckWindow : Window
 {
     private const int SnapThresholdPixels = 8;
+    internal const int RunningPulseCycleMilliseconds = 1200;
+    internal const int AttentionBlipOnMilliseconds = 50;
+    internal const int AttentionBlipCycleMilliseconds = 1500;
+    internal static Color IdleLampColor { get; } = Color.FromRgb(12, 68, 34);
+    internal static Color RunningLampColor { get; } = Color.FromRgb(16, 55, 126);
+    internal static Color QuestionLampColor { get; } = Color.FromRgb(75, 52, 5);
     private readonly Settings settings;
     private CopilotMonitor monitor;
     private readonly StackPanel buttons = new() { Orientation = Orientation.Horizontal, AllowDrop = true };
@@ -39,7 +46,6 @@ public sealed class DeckWindow : Window
     private InsertionAdorner? reorderMarker;
     private bool scanning;
     private bool closing;
-    private bool blink;
     private string hotkeyWarning = "";
     private string actionWarning = "";
     private string hotkeySignature = "";
@@ -152,7 +158,7 @@ public sealed class DeckWindow : Window
         DpiChanged += (_, _) => { UpdateViewMode(); BuildTiles(); ClampPosition(); };
         timer.Tick += async (_, _) =>
         {
-            blink = !blink;
+            AcknowledgeForegroundTile();
             PaintTiles();
             await Refresh();
         };
@@ -207,8 +213,12 @@ public sealed class DeckWindow : Window
                 var sessions = workspace is null ? [] :
                     snapshot.Sessions.Where(s => s.Workspace.Equals(workspace, StringComparison.OrdinalIgnoreCase)).ToArray();
                 snapshot.WorkspaceErrors.TryGetValue(workspace ?? "", out var error);
-                tile.Status = WindowStatus.Aggregate(sessions, error,
+                var status = WindowStatus.Aggregate(sessions, error,
                     workspace is not null && snapshot.AvailableWorkspaces.Contains(workspace));
+                tile.CompletionPending = UpdateCompletionPending(tile.CompletionPending,
+                    tile.Status.Activity, status.Activity,
+                    NativeWindows.GetForegroundWindow() == tile.Window.Handle);
+                tile.Status = status;
             }
             if (oldSignature != string.Join("|", tiles.Select(t => $"{t.Window.Handle}:{t.Window.Identity}")) ||
                 buttons.Children.Count == 0)
@@ -228,6 +238,7 @@ public sealed class DeckWindow : Window
                     Position = index + 1, Handle = t.Window.Handle.ToInt64(), t.Window.ProcessId,
                     t.Window.Project, t.Window.Workspace, Identity = t.Window.Identity,
                     Activity = t.Status.Activity.ToString(),
+                    t.CompletionPending,
                     Hotkey = index < hotkeys.Count ? hotkeys[index].Label : "Unassigned",
                     Registered = hotkeyTargets.ContainsValue(t.Window.Handle),
                     PixelWidth = t.Button is null ? 0 : t.Button.ActualWidth * VisualTreeHelper.GetDpi(this).DpiScaleX,
@@ -421,20 +432,18 @@ public sealed class DeckWindow : Window
             if (tile.Button is null || tile.Label is null) continue;
             tile.Button.Background = CreateGlassBrush(tile.Status.Activity switch
             {
-                Activity.Idle => Color.FromRgb(32, 134, 72),
-                Activity.Running => Color.FromRgb(32, 105, 201),
-                Activity.Question => blink ? Color.FromRgb(255, 212, 59) : Color.FromRgb(174, 126, 12),
+                Activity.Idle => IdleLampColor,
+                Activity.Running => RunningLampColor,
+                Activity.Question => QuestionLampColor,
                 _ => Color.FromRgb(87, 94, 106)
             });
-            tile.Label.Foreground = tile.Status.Activity == Activity.Question ? Brushes.Black : Brushes.White;
+            SetRunningPulse(tile.Button, tile.Status.Activity == Activity.Running);
+            SetCompletionBlip(tile.Button, tile.CompletionPending);
+            SetQuestionBlip(tile.Button, tile.Status.Activity == Activity.Question);
+            tile.Label.Foreground = Brushes.White;
             var active = tile.Status.Sessions.Where(s => s.Activity is Activity.Running or Activity.Question).ToArray();
-            var stateText = tile.Status.Activity switch
-            {
-                Activity.Idle => "Idle",
-                Activity.Running => settings.ButtonSize == 32 ? "Run" : "Running",
-                Activity.Question => settings.ButtonSize == 32 ? "Ask" : "Question",
-                _ => settings.ButtonSize == 32 ? "?" : "Unknown"
-            };
+            var stateText = GetStateText(tile.Status.Activity, settings.ButtonSize == 32,
+                tile.CompletionPending);
             if (settings.ButtonSize == 32)
                 tile.Label.Text = $"{index + 1}\n{stateText}{(active.Length > 1 ? active.Length.ToString() : "")}";
             else
@@ -483,6 +492,72 @@ public sealed class DeckWindow : Window
         sheen.SetValue(Border.BorderBrushProperty, new SolidColorBrush(Color.FromArgb(65, 255, 255, 255)));
         layers.AppendChild(sheen);
 
+        var runningGlow = new FrameworkElementFactory(typeof(Border)) { Name = "RunningGlow" };
+        runningGlow.SetValue(Border.CornerRadiusProperty, new CornerRadius(4));
+        runningGlow.SetValue(FrameworkElement.MarginProperty, new Thickness(1));
+        runningGlow.SetValue(IsHitTestVisibleProperty, false);
+        runningGlow.SetValue(OpacityProperty, 0.0);
+        var lampBrush = new RadialGradientBrush
+        {
+            Center = new Point(.5, .45),
+            GradientOrigin = new Point(.5, .45),
+            RadiusX = .72,
+            RadiusY = .72,
+            GradientStops = new GradientStopCollection
+            {
+                new(Color.FromArgb(225, 126, 208, 255), 0),
+                new(Color.FromArgb(130, 45, 142, 255), .52),
+                new(Colors.Transparent, 1)
+            }
+        };
+        lampBrush.Freeze();
+        runningGlow.SetValue(Border.BackgroundProperty, lampBrush);
+        layers.AppendChild(runningGlow);
+
+        var completionGlow = new FrameworkElementFactory(typeof(Border)) { Name = "CompletionGlow" };
+        completionGlow.SetValue(Border.CornerRadiusProperty, new CornerRadius(4));
+        completionGlow.SetValue(FrameworkElement.MarginProperty, new Thickness(1));
+        completionGlow.SetValue(IsHitTestVisibleProperty, false);
+        completionGlow.SetValue(OpacityProperty, 0.0);
+        var completionBrush = new RadialGradientBrush
+        {
+            Center = new Point(.5, .45),
+            GradientOrigin = new Point(.5, .45),
+            RadiusX = .72,
+            RadiusY = .72,
+            GradientStops = new GradientStopCollection
+            {
+                new(Color.FromArgb(240, 142, 255, 174), 0),
+                new(Color.FromArgb(155, 37, 214, 94), .52),
+                new(Colors.Transparent, 1)
+            }
+        };
+        completionBrush.Freeze();
+        completionGlow.SetValue(Border.BackgroundProperty, completionBrush);
+        layers.AppendChild(completionGlow);
+
+        var questionGlow = new FrameworkElementFactory(typeof(Border)) { Name = "QuestionGlow" };
+        questionGlow.SetValue(Border.CornerRadiusProperty, new CornerRadius(4));
+        questionGlow.SetValue(FrameworkElement.MarginProperty, new Thickness(1));
+        questionGlow.SetValue(IsHitTestVisibleProperty, false);
+        questionGlow.SetValue(OpacityProperty, 0.0);
+        var questionBrush = new RadialGradientBrush
+        {
+            Center = new Point(.5, .45),
+            GradientOrigin = new Point(.5, .45),
+            RadiusX = .72,
+            RadiusY = .72,
+            GradientStops = new GradientStopCollection
+            {
+                new(Color.FromArgb(245, 255, 240, 132), 0),
+                new(Color.FromArgb(175, 255, 196, 45), .52),
+                new(Colors.Transparent, 1)
+            }
+        };
+        questionBrush.Freeze();
+        questionGlow.SetValue(Border.BackgroundProperty, questionBrush);
+        layers.AppendChild(questionGlow);
+
         var hoverLayer = new FrameworkElementFactory(typeof(Border)) { Name = "HoverLight" };
         hoverLayer.SetValue(Border.CornerRadiusProperty, new CornerRadius(4));
         hoverLayer.SetValue(FrameworkElement.MarginProperty, new Thickness(1));
@@ -518,6 +593,73 @@ public sealed class DeckWindow : Window
         pressed.Setters.Add(new Setter(OpacityProperty, 0.0, "HoverLight"));
         template.Triggers.Add(pressed);
         return template;
+    }
+
+    internal static void SetRunningPulse(Button button, bool running)
+    {
+        button.ApplyTemplate();
+        if (button.Template.FindName("RunningGlow", button) is not Border glow) return;
+        if (running == glow.HasAnimatedProperties) return;
+        if (!running)
+        {
+            glow.BeginAnimation(OpacityProperty, null);
+            glow.Opacity = 0;
+            return;
+        }
+        var pulse = new DoubleAnimation
+        {
+            From = .08,
+            To = .92,
+            Duration = TimeSpan.FromMilliseconds(RunningPulseCycleMilliseconds / 2),
+            AutoReverse = true,
+            RepeatBehavior = RepeatBehavior.Forever,
+            EasingFunction = new SineEase { EasingMode = EasingMode.EaseInOut }
+        };
+        glow.BeginAnimation(OpacityProperty, pulse);
+    }
+
+    internal static bool UpdateCompletionPending(bool pending, Activity previous,
+        Activity current, bool isForeground) =>
+        !isForeground && (pending || previous == Activity.Running && current == Activity.Idle);
+
+    internal static string GetStateText(Activity activity, bool compact, bool completionPending) =>
+        activity switch
+        {
+            Activity.Idle when compact && completionPending => "Done",
+            Activity.Idle => "Idle",
+            Activity.Running => compact ? "Run" : "Running",
+            Activity.Question => compact ? "Ask" : "Question",
+            _ => compact ? "?" : "Unknown"
+        };
+
+    internal static void SetCompletionBlip(Button button, bool enabled)
+        => SetAttentionBlip(button, "CompletionGlow", enabled);
+
+    internal static void SetQuestionBlip(Button button, bool enabled)
+        => SetAttentionBlip(button, "QuestionGlow", enabled);
+
+    private static void SetAttentionBlip(Button button, string elementName, bool enabled)
+    {
+        button.ApplyTemplate();
+        if (button.Template.FindName(elementName, button) is not Border glow) return;
+        if (enabled == glow.HasAnimatedProperties) return;
+        if (!enabled)
+        {
+            glow.BeginAnimation(OpacityProperty, null);
+            glow.Opacity = 0;
+            return;
+        }
+        var blip = new DoubleAnimationUsingKeyFrames
+        {
+            Duration = TimeSpan.FromMilliseconds(AttentionBlipCycleMilliseconds),
+            RepeatBehavior = RepeatBehavior.Forever
+        };
+        blip.KeyFrames.Add(new DiscreteDoubleKeyFrame(.95, KeyTime.FromTimeSpan(TimeSpan.Zero)));
+        blip.KeyFrames.Add(new DiscreteDoubleKeyFrame(0,
+            KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(AttentionBlipOnMilliseconds))));
+        blip.KeyFrames.Add(new DiscreteDoubleKeyFrame(0,
+            KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(AttentionBlipCycleMilliseconds))));
+        glow.BeginAnimation(OpacityProperty, blip);
     }
 
     private static Button CreateCaptionButton(string content, string automationName, ControlTemplate template)
@@ -581,8 +723,17 @@ public sealed class DeckWindow : Window
     private void Activate(nint target)
     {
         actionWarning = NativeWindows.Activate(target) ?? "";
+        AcknowledgeForegroundTile();
+        PaintTiles();
         if (actionWarning.Length > 0) AppStorage.Log(actionWarning);
         UpdateNotice([]);
+    }
+
+    private void AcknowledgeForegroundTile()
+    {
+        var foreground = NativeWindows.GetForegroundWindow();
+        var tile = tiles.Find(candidate => candidate.Window.Handle == foreground);
+        if (tile is not null) tile.CompletionPending = false;
     }
 
     private void RegisterHotkeys()
@@ -720,6 +871,7 @@ public sealed class DeckWindow : Window
         public WindowStatus Status { get; set; } = WindowStatus.Aggregate([]);
         public Button? Button { get; set; }
         public TextBlock? Label { get; set; }
+        public bool CompletionPending { get; set; }
     }
 
     private sealed class InsertionAdorner : Adorner
