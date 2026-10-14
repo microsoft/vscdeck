@@ -21,6 +21,8 @@ internal static class Program
     [DllImport("user32.dll")] private static extern bool SetCursorPos(int x, int y);
     [DllImport("user32.dll")] private static extern bool GetCursorPos(out CursorPoint point);
     [DllImport("user32.dll")] private static extern void mouse_event(uint flags, uint dx, uint dy, uint data, nuint extra);
+    [DllImport("user32.dll", SetLastError = true)] private static extern bool PostMessage(
+        nint window, uint message, nint wParam, nint lParam);
     [DllImport("user32.dll", SetLastError = true)] private static extern bool SetWindowPos(
         nint hwnd, nint insertAfter, int x, int y, int width, int height, uint flags);
     [StructLayout(LayoutKind.Sequential)] private struct CursorPoint { public int X; public int Y; }
@@ -323,6 +325,19 @@ internal static class Program
                 "Large title-bar controls have no tooltips");
             Check(tileButtons.All(b => Math.Abs(b.ActualWidth * dpi.DpiScaleX - 64) < .1 &&
                 Math.Abs(b.ActualHeight * dpi.DpiScaleY - 64) < .1), "All large buttons are exactly 64 x 64 physical pixels");
+            Check(tileButtons.Select(FocusMarker).All(marker =>
+                    Math.Abs(marker.Width * dpi.DpiScaleX - 24) < .1 &&
+                    Math.Abs(marker.Height * dpi.DpiScaleY - 3) < .1 &&
+                    marker.CornerRadius.TopLeft > 0),
+                "Large focus markers are short three-pixel bars with rounded ends");
+            var hotkeyFocusTarget = tileButtons[0];
+            Check(PostMessage(new WindowInteropHelper(deck).Handle, 0x312, 100, 0),
+                "Focus hotkey message is delivered to VSC Deck");
+            PumpUntil(() => FocusMarker(hotkeyFocusTarget).Opacity == 1 &&
+                NativeWindows.GetForegroundWindow() != 0);
+            Check(FocusMarker(hotkeyFocusTarget).Opacity == 1 &&
+                tileButtons.Skip(1).All(button => FocusMarker(button).Opacity == 0),
+                "Hotkey navigation marks only the focused VS Code button");
             var largeStripes = tileButtons.Select(ColorStripe).ToArray();
             Check(largeStripes.All(stripe =>
                     Math.Abs(stripe.Height * dpi.DpiScaleY - 2) < .1 &&
@@ -337,9 +352,19 @@ internal static class Program
                         { Color.R: 255, Color.G: 255, Color.B: 51, Color.A: 255 }),
                     "Juno 39 displays its yellow workspace-color stripe");
             }
+            Check(tileButtons.All(button => button.Content is TextBlock label &&
+                    label.Text.Split('\n') is [var position, var workspace, var state] &&
+                    int.TryParse(position, out _) && workspace.Length > 0 &&
+                    !workspace.Contains("[Dev Container:", StringComparison.OrdinalIgnoreCase) &&
+                    state is "Idle" or "Run" or "Question" or "Done"),
+                "Large buttons show exactly the number, workspace name, and state on three lines");
+            Check(DeckWindow.WorkspaceDisplayName(new CodeWindow(0, 0, "",
+                    "juno36_amr1 [Dev Container: Juno 36 @ devbox]",
+                    @"docker:devbox:\home\azureuser\wrk\juno36_amr1")) == "juno36_amr1",
+                "Large button workspace names omit remote-window decorations");
             var runningButton = tileButtons.First(b =>
-                b.Content is TextBlock label && label.Text.Contains("Running"));
-            Check(runningButton is not null, "Real live agent session displays Running");
+                b.Content is TextBlock label && label.Text.Split('\n').Last() == "Run");
+            Check(runningButton is not null, "Real live agent session displays Run");
             Check(DeckWindow.RunningPulseCycleMilliseconds == 1200 &&
                 runningButton!.Template?.FindName("RunningGlow", runningButton) is Border
                     { HasAnimatedProperties: true, Background: RadialGradientBrush },
@@ -360,6 +385,10 @@ internal static class Program
                 "Each running button owns and starts its own blue pulse clock");
             foreach (var button in independentlyPulsingButtons) DeckWindow.SetRunningPulse(button, false);
             static double Luminance(Color color) => .2126 * color.R + .7152 * color.G + .0722 * color.B;
+            Check(DeckWindow.IdleLampColor == Color.FromRgb(10, 60, 30) &&
+                DeckWindow.RunningLampColor == Color.FromRgb(14, 49, 112) &&
+                DeckWindow.QuestionLampColor == Color.FromRgb(66, 46, 4),
+                "Idle, running, and question lamps use the darker resting palette");
             Check(Math.Abs(Luminance(DeckWindow.IdleLampColor) - Luminance(DeckWindow.RunningLampColor)) < 2,
                 "Idle green matches the perceived brightness of the running lamp's dark-blue state");
             Check(Math.Abs(Luminance(DeckWindow.QuestionLampColor) - Luminance(DeckWindow.RunningLampColor)) < 2,
@@ -376,8 +405,9 @@ internal static class Program
                 "Completion blip latches only after running becomes idle and clears when its window gains focus");
             Check(DeckWindow.GetStateText(VSCDeck.Core.Activity.Idle, true, true) == "Done" &&
                 DeckWindow.GetStateText(VSCDeck.Core.Activity.Idle, true, false) == "Idle" &&
-                DeckWindow.GetStateText(VSCDeck.Core.Activity.Idle, false, true) == "Idle",
-                "Compact completion label says Done until focus acknowledgement restores Idle");
+                DeckWindow.GetStateText(VSCDeck.Core.Activity.Idle, false, true) == "Done" &&
+                DeckWindow.GetStateText(VSCDeck.Core.Activity.Running, false, false) == "Run",
+                "Completion labels say Done until focus acknowledgement and large running labels say Run");
             var idleButton = tileButtons.First(button => button != runningButton);
             DeckWindow.SetCompletionBlip(idleButton, true);
             Check(DeckWindow.BlipOnMilliseconds == 50 &&
@@ -401,6 +431,11 @@ internal static class Program
                     { HasAnimatedProperties: false, Opacity: 0 },
                 "Resolving a question removes its yellow blip");
             var independentlyBlippingButtons = tileButtons.Where(button => button != runningButton).Take(2).ToArray();
+            foreach (var button in independentlyBlippingButtons)
+            {
+                DeckWindow.SetCompletionBlip(button, false);
+                DeckWindow.SetQuestionBlip(button, false);
+            }
             DeckWindow.SetCompletionBlip(independentlyBlippingButtons[0], true);
             Check(independentlyBlippingButtons[0].Template.FindName("CompletionGlow",
                     independentlyBlippingButtons[0]) is Border { HasAnimatedProperties: true } &&
@@ -450,7 +485,7 @@ internal static class Program
                     using var after = JsonDocument.Parse(File.ReadAllText(Path.Combine(AppStorage.DirectoryPath, "status.json")));
                     return after.RootElement.GetProperty("UpdatedAt").GetDateTimeOffset() > before;
                 });
-                Check(tileButtons.Any(b => ((TextBlock)b.Content).Text.Contains("Running")),
+                Check(tileButtons.Any(b => ((TextBlock)b.Content).Text.Split('\n').Last() == "Run"),
                     "A locked log does not stall status updates or hide active sessions");
             }
             AppStorage.Log("Log-lock regression test completed; normal logging restored.");
@@ -556,6 +591,11 @@ internal static class Program
             Check(compactButtons.All(b => b.Background is LinearGradientBrush &&
                 b.Template.FindName("GlassSheen", b) is Border),
                 "Compact buttons retain the same glass finish within their exact pixel bounds");
+            Check(compactButtons.Select(FocusMarker).All(marker =>
+                    Math.Abs(marker.Width * dpi.DpiScaleX - 10) < .1 &&
+                    Math.Abs(marker.Height * dpi.DpiScaleY - 1) < .1 &&
+                    marker.CornerRadius == new CornerRadius(0)),
+                "Compact focus markers are short one-pixel bars");
             Check(compactButtons.Select(ColorStripe).All(stripe =>
                     Math.Abs(stripe.Height * dpi.DpiScaleY - 1) < .1 &&
                     Math.Abs(stripe.Margin.Top * dpi.DpiScaleY - 1) < .1),
@@ -768,6 +808,9 @@ internal static class Program
         ((StackPanel)VisualTreeHelper.GetParent(button)).Children.OfType<Border>().Single(border =>
             System.Windows.Automation.AutomationProperties.GetName(border) ==
             "Workspace debugging color stripe");
+
+    private static Border FocusMarker(Button button) =>
+        (Border)button.Template.FindName("FocusMarker", button);
 
     private static Border ReorderGrip(Button button) =>
         ((StackPanel)VisualTreeHelper.GetParent(button)).Children.OfType<Border>().Single(border =>

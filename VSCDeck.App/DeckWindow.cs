@@ -25,9 +25,9 @@ public sealed class DeckWindow : Window
     internal const int BlipOnMilliseconds = 50;
     internal const int CompletionBlipCycleMilliseconds = 2000;
     internal const int QuestionBlipCycleMilliseconds = 1500;
-    internal static Color IdleLampColor { get; } = Color.FromRgb(12, 68, 34);
-    internal static Color RunningLampColor { get; } = Color.FromRgb(16, 55, 126);
-    internal static Color QuestionLampColor { get; } = Color.FromRgb(75, 52, 5);
+    internal static Color IdleLampColor { get; } = Color.FromRgb(10, 60, 30);
+    internal static Color RunningLampColor { get; } = Color.FromRgb(14, 49, 112);
+    internal static Color QuestionLampColor { get; } = Color.FromRgb(66, 46, 4);
     private readonly Settings settings;
     private CopilotMonitor monitor;
     private readonly StackPanel buttons = new() { Orientation = Orientation.Horizontal, AllowDrop = true };
@@ -293,7 +293,8 @@ public sealed class DeckWindow : Window
         foreach (var tile in tiles)
         {
             var column = new StackPanel { Margin = new(2, 0, 2, 0) };
-            tile.Label = new TextBlock { TextAlignment = TextAlignment.Center, TextWrapping = TextWrapping.Wrap,
+            tile.Label = new TextBlock { TextAlignment = TextAlignment.Center,
+                TextWrapping = settings.ButtonSize == 32 ? TextWrapping.Wrap : TextWrapping.NoWrap,
                 TextTrimming = TextTrimming.CharacterEllipsis, FontSize = settings.ButtonSize == 32 ? 8 : 10,
                 Padding = new(settings.ButtonSize == 32 ? 0 : 2), ClipToBounds = true };
             tile.Label.FontSize /= dpi.DpiScaleY;
@@ -459,6 +460,8 @@ public sealed class DeckWindow : Window
 
     private void PaintTiles()
     {
+        var foreground = NativeWindows.GetForegroundWindow();
+        var dpi = VisualTreeHelper.GetDpi(this);
         for (var index = 0; index < tiles.Count; index++)
         {
             var tile = tiles[index];
@@ -473,6 +476,7 @@ public sealed class DeckWindow : Window
             SetRunningPulse(tile.Button, tile.Status.Activity == Activity.Running);
             SetCompletionBlip(tile.Button, tile.CompletionPending);
             SetQuestionBlip(tile.Button, tile.Status.Activity == Activity.Question);
+            SetFocusMarker(tile.Button, tile.Window.Handle == foreground, settings.ButtonSize, dpi);
             if (tile.ColorStripe is not null)
                 tile.ColorStripe.Background = ColorStripeBrush(tile.Window.DebuggingBackground);
             tile.Label.Foreground = Brushes.White;
@@ -482,12 +486,7 @@ public sealed class DeckWindow : Window
             if (settings.ButtonSize == 32)
                 tile.Label.Text = $"{index + 1}\n{stateText}{(active.Length > 1 ? active.Length.ToString() : "")}";
             else
-            {
-                var description = active.Length == 0 ? "" : "\n" + string.Join("\n",
-                    active.Take(2).Select(s => SessionTracker.Shorten(s.Title, 20)));
-                if (active.Length > 2) description += $"\n+{active.Length - 2} more";
-                tile.Label.Text = $"{index + 1}: {SessionTracker.Shorten(tile.Window.Project, 12)}\n{stateText}{description}";
-            }
+                tile.Label.Text = $"{index + 1}\n{WorkspaceDisplayName(tile.Window)}\n{stateText}";
 
             var hotkey = index < hotkeys.Count ? hotkeys[index].Label : "No hotkey assigned";
             var shared = tiles.Count(t => t.Window.Identity == tile.Window.Identity) > 1
@@ -616,6 +615,15 @@ public sealed class DeckWindow : Window
         presenter.SetBinding(FrameworkElement.VerticalAlignmentProperty,
             new Binding("VerticalContentAlignment") { RelativeSource = parent });
         layers.AppendChild(presenter);
+
+        var focusMarker = new FrameworkElementFactory(typeof(Border)) { Name = "FocusMarker" };
+        focusMarker.SetValue(FrameworkElement.HorizontalAlignmentProperty, HorizontalAlignment.Center);
+        focusMarker.SetValue(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Top);
+        focusMarker.SetValue(Border.BackgroundProperty,
+            new SolidColorBrush(Color.FromArgb(240, 255, 255, 255)));
+        focusMarker.SetValue(IsHitTestVisibleProperty, false);
+        focusMarker.SetValue(OpacityProperty, 0.0);
+        layers.AppendChild(focusMarker);
         border.AppendChild(layers);
         var template = new ControlTemplate(typeof(Button)) { VisualTree = border };
         var hover = new Trigger { Property = IsMouseOverProperty, Value = true };
@@ -628,6 +636,19 @@ public sealed class DeckWindow : Window
         pressed.Setters.Add(new Setter(OpacityProperty, 0.0, "HoverLight"));
         template.Triggers.Add(pressed);
         return template;
+    }
+
+    internal static void SetFocusMarker(Button button, bool focused, int buttonPixels, DpiScale dpi)
+    {
+        button.ApplyTemplate();
+        if (button.Template.FindName("FocusMarker", button) is not Border marker) return;
+        var compact = buttonPixels == 32;
+        marker.Width = (compact ? 10 : 24) / dpi.DpiScaleX;
+        marker.Height = (compact ? 1 : 3) / dpi.DpiScaleY;
+        marker.Margin = new Thickness(0, (compact ? 3 : 4) / dpi.DpiScaleY, 0, 0);
+        marker.CornerRadius = compact ? new CornerRadius(0) :
+            new CornerRadius(1.5 / dpi.DpiScaleY);
+        marker.Opacity = focused ? 1 : 0;
     }
 
     internal static void SetRunningPulse(Button button, bool running)
@@ -657,12 +678,27 @@ public sealed class DeckWindow : Window
         Activity current, bool isForeground) =>
         !isForeground && (pending || previous == Activity.Running && current == Activity.Idle);
 
+    internal static string WorkspaceDisplayName(CodeWindow window)
+    {
+        if (window.Workspace is { Length: > 0 } workspace)
+        {
+            var normalized = workspace.Replace('/', '\\').TrimEnd('\\');
+            var separator = normalized.LastIndexOf('\\');
+            var name = separator >= 0 ? normalized[(separator + 1)..] : normalized;
+            if (name.EndsWith(".code-workspace", StringComparison.OrdinalIgnoreCase))
+                name = Path.GetFileNameWithoutExtension(name);
+            if (name.Length > 0) return name;
+        }
+        var remoteSuffix = window.Project.IndexOf(" [", StringComparison.Ordinal);
+        return remoteSuffix > 0 ? window.Project[..remoteSuffix] : window.Project;
+    }
+
     internal static string GetStateText(Activity activity, bool compact, bool completionPending) =>
         activity switch
         {
-            Activity.Idle when compact && completionPending => "Done",
+            Activity.Idle when completionPending => "Done",
             Activity.Idle => "Idle",
-            Activity.Running => compact ? "Run" : "Running",
+            Activity.Running => "Run",
             Activity.Question => compact ? "Ask" : "Question",
             _ => compact ? "?" : "Unknown"
         };

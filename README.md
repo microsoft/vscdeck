@@ -27,14 +27,18 @@ There is no public network service and nothing is uploaded to external services.
   blips start when their individual completion or question event is detected,
   so buttons do not animate in lockstep.
 - Hover a button for the workspace, every session, activity text, and questions.
-  At 64 pixels, active session titles appear on the button; at 32 pixels, the
-  button displays its position, state, and active-session count.
+  At 64 pixels, each button always shows exactly three lines: its position,
+  workspace name, and state. At 32 pixels, the button displays its position,
+  state, and active-session count.
 - A stripe below each button reflects an explicitly customized
   `workbench.colorCustomizations.statusBar.debuggingBackground` from that
   workspace's `.vscode/settings.json` (or `.code-workspace` file). The stripe
   has a one-physical-pixel gap below the button, then is two physical pixels
   high in Large view and one in Compact view. Workspaces without that
   customization retain the same transparent stripe space.
+- The foreground VS Code window is identified by a small white bar centered
+  along the top of its button. The marker is one physical pixel high in
+  Compact view and three physical pixels high with rounded ends in Large view.
 - Click a button or press its global hotkey to bring its VS Code window forward.
   VSC Deck then focuses the GitHub Copilot Chat input so you can immediately
   type or dictate. If that window is already foreground, the same action also
