@@ -19,8 +19,11 @@ There is no public network service and nothing is uploaded to external services.
 - Click a button or press its global hotkey to bring its VS Code window forward.
   If that window is already foreground, the same action toggles maximize/restore.
 - In **Large** view, drag the **grip below a button** onto another button to
-  reorder it. **Compact** view hides these grips. Hotkeys follow
-  positions, not projects. New windows are added in discovery order.
+  reorder it. A blue insertion marker shows the resulting position, including
+  positions before the first and after the last button. The marker is hidden
+  when dropping would leave the button in its current position. **Compact**
+  view hides these grips. Hotkeys follow positions, not projects. New windows
+  are added in discovery order.
 - Drag the title grip to move the always-on-top panel.
 - When **Snap to screen edges** is enabled in Settings, moving the panel within
   eight physical pixels of any monitor edge snaps it to that edge.

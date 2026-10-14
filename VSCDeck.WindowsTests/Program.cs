@@ -69,6 +69,11 @@ internal static class Program
                     DockerContext: "desktop-linux", SshHost: null,
                     SessionRoot: "/home/vscode/.copilot/session-state" }],
                 "Container labels produce a matching remote source and session root");
+            Check(DeckWindow.CalculateInsertionIndex([10, 30, 50], 5) == 0 &&
+                DeckWindow.CalculateInsertionIndex([10, 30, 50], 10) == 1 &&
+                DeckWindow.CalculateInsertionIndex([10, 30, 50], 40) == 2 &&
+                DeckWindow.CalculateInsertionIndex([10, 30, 50], 55) == 3,
+                "Reorder insertion positions cover the left edge, gaps, and right edge");
             var monitorBounds = new NativeWindows.PixelRect(-1920, -200, 0, 880);
             Check(NativeWindows.CalculateSnapOffset(
                 new NativeWindows.PixelRect(-1913, -192, -1513, 108), monitorBounds, 8) == new NativeWindows.PixelOffset(-7, -8),
@@ -263,6 +268,14 @@ internal static class Program
                 var grip = parent.Children.OfType<Border>().Single();
                 var from = grip.PointToScreen(new Point(grip.ActualWidth / 2, grip.ActualHeight / 2));
                 var to = tileButtons[1].PointToScreen(new Point(tileButtons[1].ActualWidth / 2, tileButtons[1].ActualHeight / 2));
+                var markerSeen = false;
+                var originalPositionMarkerSeen = false;
+                DragEventHandler observeMarker = (_, _) =>
+                {
+                    markerSeen |= deck.IsReorderMarkerVisible;
+                    originalPositionMarkerSeen |= deck.IsReorderMarkerVisible && deck.ReorderInsertionIndex == 0;
+                };
+                deck.AddHandler(DragDrop.DragOverEvent, observeMarker, true);
                 GetCursorPos(out var cursor);
                 try
                 {
@@ -286,13 +299,43 @@ internal static class Program
                     PumpFor(1300);
                     moveThread.Join();
                     tileButtons = TileButtons(deck);
+                    Check(markerSeen, "Real reorder drag displays an insertion marker");
+                    Check(!originalPositionMarkerSeen,
+                        "Reorder drag does not display a marker for the button's existing position");
+                    Check(!deck.IsReorderMarkerVisible && deck.ReorderInsertionIndex is null,
+                        "Reorder insertion marker clears after drop");
                     Check(System.Windows.Automation.AutomationProperties.GetName(tileButtons[0]) == targetName &&
                         System.Windows.Automation.AutomationProperties.GetName(tileButtons[1]) == firstName,
                         "Real mouse grip drag reorders buttons");
                     var loaded = AppStorage.Load();
                     Check(loaded.Order.SequenceEqual(settings.Order) && loaded.Order.Count > 0, "Drag ordering persists to disk");
+                    if (tileButtons.Count >= 3)
+                    {
+                        var middle = tileButtons[tileButtons.Count / 2];
+                        var middleName = System.Windows.Automation.AutomationProperties.GetName(middle);
+                        var middleGrip = ((StackPanel)VisualTreeHelper.GetParent(middle)).Children.OfType<Border>().Single();
+                        var rightmost = tileButtons[^1];
+                        DragWithMouse(middleGrip, rightmost.PointToScreen(
+                            new Point(rightmost.ActualWidth - 1, rightmost.ActualHeight / 2)));
+                        tileButtons = TileButtons(deck);
+                        Check(System.Windows.Automation.AutomationProperties.GetName(tileButtons[^1]) == middleName,
+                            "A middle button can be dragged to the right edge");
+
+                        middle = tileButtons[^1];
+                        middleGrip = ((StackPanel)VisualTreeHelper.GetParent(middle)).Children.OfType<Border>().Single();
+                        var leftmost = tileButtons[0];
+                        DragWithMouse(middleGrip, leftmost.PointToScreen(new Point(1, leftmost.ActualHeight / 2)));
+                        tileButtons = TileButtons(deck);
+                        Check(System.Windows.Automation.AutomationProperties.GetName(tileButtons[0]) == middleName,
+                            "A middle button can be dragged to the left edge");
+                    }
                 }
-                finally { mouse_event(4, 0, 0, 0, 0); SetCursorPos(cursor.X, cursor.Y); }
+                finally
+                {
+                    deck.RemoveHandler(DragDrop.DragOverEvent, observeMarker);
+                    mouse_event(4, 0, 0, 0, 0);
+                    SetCursorPos(cursor.X, cursor.Y);
+                }
             }
             if (args.Length > 0) Screenshot(deck, Path.Combine(args[0], "panel-64.png"));
             deck.Close();
@@ -520,6 +563,39 @@ internal static class Program
         timer.Tick += (_, _) => { timer.Stop(); frame.Continue = false; };
         timer.Start();
         Dispatcher.PushFrame(frame);
+    }
+
+    private static void DragWithMouse(FrameworkElement source, Point destination)
+    {
+        var from = source.PointToScreen(new Point(source.ActualWidth / 2, source.ActualHeight / 2));
+        GetCursorPos(out var cursor);
+        try
+        {
+            SetCursorPos((int)from.X, (int)from.Y);
+            PumpFor(100);
+            mouse_event(2, 0, 0, 0, 0);
+            var moveThread = new Thread(() =>
+            {
+                Thread.Sleep(150);
+                SetCursorPos((int)(from.X + SystemParameters.MinimumHorizontalDragDistance + 2), (int)from.Y);
+                Thread.Sleep(250);
+                for (var step = 1; step <= 15; step++)
+                {
+                    SetCursorPos((int)(from.X + (destination.X - from.X) * step / 15),
+                        (int)(from.Y + (destination.Y - from.Y) * step / 15));
+                    Thread.Sleep(30);
+                }
+                mouse_event(4, 0, 0, 0, 0);
+            });
+            moveThread.Start();
+            PumpFor(1300);
+            moveThread.Join();
+        }
+        finally
+        {
+            mouse_event(4, 0, 0, 0, 0);
+            SetCursorPos(cursor.X, cursor.Y);
+        }
     }
 
     private static void Check(bool condition, string message)

@@ -4,6 +4,7 @@ using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
@@ -18,7 +19,7 @@ public sealed class DeckWindow : Window
     private const int SnapThresholdPixels = 8;
     private readonly Settings settings;
     private CopilotMonitor monitor;
-    private readonly StackPanel buttons = new() { Orientation = Orientation.Horizontal };
+    private readonly StackPanel buttons = new() { Orientation = Orientation.Horizontal, AllowDrop = true };
     private readonly TextBlock notice = new() { Foreground = Brushes.Gold, FontSize = 10, Margin = new(6, 0, 6, 3), MaxWidth = 520 };
     private readonly DockPanel header;
     private readonly ScrollViewer scroll;
@@ -35,12 +36,15 @@ public sealed class DeckWindow : Window
     private static readonly ControlTemplate TileTemplate = CreateTileTemplate();
     private List<Hotkey> hotkeys;
     private HwndSource? source;
+    private InsertionAdorner? reorderMarker;
     private bool scanning;
     private bool closing;
     private bool blink;
     private string hotkeyWarning = "";
     private string actionWarning = "";
     private string hotkeySignature = "";
+    internal int? ReorderInsertionIndex { get; private set; }
+    internal bool IsReorderMarkerVisible => reorderMarker?.Visibility == Visibility.Visible;
 
     public DeckWindow(Settings settings)
     {
@@ -92,8 +96,12 @@ public sealed class DeckWindow : Window
         root.Children.Add(header);
         scroll = new ScrollViewer { Content = buttons, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
             VerticalScrollBarVisibility = ScrollBarVisibility.Disabled, Margin = new(3) };
-        Grid.SetRow(scroll, 1);
-        root.Children.Add(scroll);
+        var adornerDecorator = new AdornerDecorator { Child = scroll };
+        Grid.SetRow(adornerDecorator, 1);
+        root.Children.Add(adornerDecorator);
+        buttons.DragOver += ButtonsDragOver;
+        buttons.DragLeave += ButtonsDragLeave;
+        buttons.Drop += ButtonsDrop;
         compactModeToggle = new Button { Content = "↗", Padding = new(0), Margin = new(0, 3, 0, 3),
             BorderThickness = new(0), Background = Brushes.Transparent, Foreground = Brushes.White,
             FontFamily = new FontFamily("Segoe UI Symbol"), FontSize = 14,
@@ -244,6 +252,7 @@ public sealed class DeckWindow : Window
 
     private void BuildTiles()
     {
+        HideReorderMarker();
         UpdateViewMode();
         buttons.Children.Clear();
         if (tiles.Count == 0)
@@ -254,7 +263,7 @@ public sealed class DeckWindow : Window
         var dpi = VisualTreeHelper.GetDpi(this);
         foreach (var tile in tiles)
         {
-            var column = new StackPanel { Margin = new(2, 0, 2, 0), AllowDrop = true };
+            var column = new StackPanel { Margin = new(2, 0, 2, 0) };
             tile.Label = new TextBlock { TextAlignment = TextAlignment.Center, TextWrapping = TextWrapping.Wrap,
                 TextTrimming = TextTrimming.CharacterEllipsis, FontSize = settings.ButtonSize == 32 ? 8 : 10,
                 Padding = new(settings.ButtonSize == 32 ? 0 : 2), ClipToBounds = true };
@@ -288,35 +297,120 @@ public sealed class DeckWindow : Window
                     var point = e.GetPosition(grip);
                     if (Math.Abs(point.X - start.X) < SystemParameters.MinimumHorizontalDragDistance &&
                         Math.Abs(point.Y - start.Y) < SystemParameters.MinimumVerticalDragDistance) return;
-                    DragDrop.DoDragDrop(grip, new DataObject("VSCDeck.Tile", tile.Window.Handle.ToInt64()), DragDropEffects.Move);
+                    try
+                    {
+                        DragDrop.DoDragDrop(grip, new DataObject("VSCDeck.Tile", tile.Window.Handle.ToInt64()),
+                            DragDropEffects.Move);
+                    }
+                    finally { HideReorderMarker(); }
                 };
                 column.Children.Add(grip);
             }
-            column.DragOver += (_, e) =>
-            {
-                e.Effects = e.Data.GetDataPresent("VSCDeck.Tile") ? DragDropEffects.Move : DragDropEffects.None;
-                e.Handled = true;
-            };
-            column.Drop += (_, e) =>
-            {
-                if (e.Data.GetData("VSCDeck.Tile") is not long handle) return;
-                var from = tiles.FindIndex(t => t.Window.Handle.ToInt64() == handle);
-                var to = tiles.IndexOf(tile);
-                if (from < 0 || to < 0 || from == to) return;
-                var moving = tiles[from];
-                tiles.RemoveAt(from);
-                tiles.Insert(to, moving);
-                settings.Order = Identity.RememberOrder(tiles.Select(t => t.Window.Identity), settings.Order);
-                SaveSettings();
-                BuildTiles();
-                RegisterHotkeys();
-                PaintTiles();
-                e.Handled = true;
-            };
             buttons.Children.Add(column);
         }
         PaintTiles();
         Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(ClampPosition));
+    }
+
+    private void ButtonsDragOver(object sender, DragEventArgs e)
+    {
+        if (!e.Data.GetDataPresent("VSCDeck.Tile"))
+        {
+            e.Effects = DragDropEffects.None;
+            HideReorderMarker();
+            e.Handled = true;
+            return;
+        }
+        if (e.Data.GetData("VSCDeck.Tile") is not long handle) return;
+        var from = tiles.FindIndex(tile => tile.Window.Handle.ToInt64() == handle);
+        if (from < 0) return;
+        var columns = buttons.Children.OfType<FrameworkElement>()
+            .Where((_, index) => index != from).ToArray();
+        if (columns.Length == 0)
+        {
+            HideReorderMarker();
+            return;
+        }
+        var centers = columns.Select(column =>
+            column.TranslatePoint(new Point(column.ActualWidth / 2, 0), buttons).X).ToArray();
+        var index = CalculateInsertionIndex(centers, e.GetPosition(buttons).X);
+        if (index == from)
+        {
+            HideReorderMarker();
+            e.Effects = DragDropEffects.Move;
+            e.Handled = true;
+            return;
+        }
+        ShowReorderMarker(columns, index);
+        e.Effects = DragDropEffects.Move;
+        e.Handled = true;
+    }
+
+    private void ButtonsDragLeave(object sender, DragEventArgs e)
+    {
+        var point = e.GetPosition(buttons);
+        if (point.X < 0 || point.Y < 0 || point.X > buttons.ActualWidth || point.Y > buttons.ActualHeight)
+            HideReorderMarker();
+    }
+
+    private void ButtonsDrop(object sender, DragEventArgs e)
+    {
+        var insertion = ReorderInsertionIndex;
+        HideReorderMarker();
+        if (insertion is null || e.Data.GetData("VSCDeck.Tile") is not long handle) return;
+        var from = tiles.FindIndex(tile => tile.Window.Handle.ToInt64() == handle);
+        if (from < 0) return;
+        var to = insertion.Value;
+        if (from == to)
+        {
+            e.Handled = true;
+            return;
+        }
+        var moving = tiles[from];
+        tiles.RemoveAt(from);
+        tiles.Insert(to, moving);
+        settings.Order = Identity.RememberOrder(tiles.Select(tile => tile.Window.Identity), settings.Order);
+        SaveSettings();
+        BuildTiles();
+        RegisterHotkeys();
+        PaintTiles();
+        e.Handled = true;
+    }
+
+    private void ShowReorderMarker(IReadOnlyList<FrameworkElement> columns, int insertion)
+    {
+        if (columns.Count == 0) return;
+        var x = insertion switch
+        {
+            0 => columns[0].TranslatePoint(new Point(0, 0), buttons).X,
+            _ when insertion == columns.Count =>
+                columns[^1].TranslatePoint(new Point(columns[^1].ActualWidth, 0), buttons).X,
+            _ => (columns[insertion - 1].TranslatePoint(
+                    new Point(columns[insertion - 1].ActualWidth, 0), buttons).X +
+                columns[insertion].TranslatePoint(new Point(0, 0), buttons).X) / 2
+        };
+        if (reorderMarker is null)
+        {
+            var layer = AdornerLayer.GetAdornerLayer(buttons);
+            if (layer is null) return;
+            reorderMarker = new InsertionAdorner(buttons);
+            layer.Add(reorderMarker);
+        }
+        ReorderInsertionIndex = insertion;
+        reorderMarker.Show(x);
+    }
+
+    private void HideReorderMarker()
+    {
+        ReorderInsertionIndex = null;
+        reorderMarker?.Hide();
+    }
+
+    internal static int CalculateInsertionIndex(IReadOnlyList<double> centers, double x)
+    {
+        var index = 0;
+        while (index < centers.Count && x >= centers[index]) index++;
+        return index;
     }
 
     private void PaintTiles()
@@ -626,5 +720,33 @@ public sealed class DeckWindow : Window
         public WindowStatus Status { get; set; } = WindowStatus.Aggregate([]);
         public Button? Button { get; set; }
         public TextBlock? Label { get; set; }
+    }
+
+    private sealed class InsertionAdorner : Adorner
+    {
+        private double x;
+
+        public InsertionAdorner(UIElement adornedElement) : base(adornedElement)
+        {
+            IsHitTestVisible = false;
+            Visibility = Visibility.Collapsed;
+        }
+
+        public void Show(double position)
+        {
+            x = position;
+            Visibility = Visibility.Visible;
+            InvalidateVisual();
+        }
+
+        public void Hide() => Visibility = Visibility.Collapsed;
+
+        protected override void OnRender(DrawingContext drawingContext)
+        {
+            var marker = new SolidColorBrush(Color.FromRgb(0, 174, 255));
+            marker.Freeze();
+            drawingContext.DrawRoundedRectangle(marker, null,
+                new Rect(x - 2, 0, 4, AdornedElement.RenderSize.Height), 2, 2);
+        }
     }
 }
