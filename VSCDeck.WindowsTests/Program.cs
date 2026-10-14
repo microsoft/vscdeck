@@ -227,9 +227,40 @@ internal static class Program
                 new Uri("pack://application:,,,/VSCDeck;component/Assets/VSCDeck.ico"));
             using (var iconReader = new BinaryReader(iconResource.Stream, System.Text.Encoding.UTF8, true))
             {
-                Check(deck.Icon is not null && iconReader.ReadUInt16() == 0 &&
-                    iconReader.ReadUInt16() == 1 && iconReader.ReadUInt16() == 9,
+                var reserved = iconReader.ReadUInt16();
+                var type = iconReader.ReadUInt16();
+                var frameCount = iconReader.ReadUInt16();
+                var frameLength = 0;
+                var frameOffset = 0;
+                for (var index = 0; index < frameCount; index++)
+                {
+                    var width = iconReader.ReadByte();
+                    iconReader.ReadByte();
+                    iconReader.ReadBytes(6);
+                    var length = iconReader.ReadInt32();
+                    var offset = iconReader.ReadInt32();
+                    if (width == 32) (frameLength, frameOffset) = (length, offset);
+                }
+                Check(deck.Icon is not null && reserved == 0 && type == 1 && frameCount == 9 &&
+                    frameLength > 0,
                     "Window and executable use the nine-frame VSC Deck taskbar icon");
+                iconReader.BaseStream.Position = frameOffset;
+                using var frameStream = new MemoryStream(iconReader.ReadBytes(frameLength));
+                var iconFrame = new PngBitmapDecoder(frameStream, BitmapCreateOptions.PreservePixelFormat,
+                    BitmapCacheOption.OnLoad).Frames[0];
+                Check(iconFrame.Format.BitsPerPixel == 32 &&
+                    IconAlpha(iconFrame, .27, .5) > 180 &&
+                    IconAlpha(iconFrame, .73, .5) < 40 &&
+                    IconAlpha(iconFrame, .57, .5) > 20,
+                    "Taskbar icon has a solid left square and hollow right square on transparency");
+            }
+            static byte IconAlpha(BitmapSource source, double x, double y)
+            {
+                var pixel = new byte[4];
+                source.CopyPixels(new Int32Rect(
+                    Math.Min(source.PixelWidth - 1, (int)(source.PixelWidth * x)),
+                    Math.Min(source.PixelHeight - 1, (int)(source.PixelHeight * y)), 1, 1), pixel, 4, 0);
+                return pixel[3];
             }
             Check(!deck.ShowInTaskbar && deck.IsNotificationIconVisible &&
                 deck.NotificationMenuItems.SequenceEqual(["Hide VSC Deck", "Settings", "Exit"]),
