@@ -1,0 +1,143 @@
+# VSDeck
+
+A C# / WPF, Windows-only floating overview of VS Code windows and their local
+GitHub Copilot agent-host sessions. It never closes, reloads, or installs anything
+in VS Code. Telemetry is read locally or from your configured Docker/SSH hosts.
+There is no public network service and nothing is uploaded to external services.
+
+## Using the panel
+
+- **Green**: all associated live sessions are idle. The button says **Idle**.
+- **Blue**: at least one session is running.
+- **Flashing yellow**: any session has an unanswered question or permission prompt.
+- **Gray**: workspace/status cannot be determined, or telemetry cannot be read.
+- Buttons use rounded glass surfaces, subtle state-colored gradients, a top
+  sheen, and hover/pressed highlights at both sizes without changing status colors.
+- Hover a button for the workspace, every session, activity text, and questions.
+  At 64 pixels, active session titles appear on the button; at 32 pixels, the
+  button displays its position, state, and active-session count.
+- Click a button or press its global hotkey to bring its VS Code window forward.
+  If that window is already foreground, the same action toggles maximize/restore.
+- Drag the **grip below a button** onto another button to reorder it. Hotkeys
+  follow positions, not projects. New windows are added in discovery order.
+- Drag the title grip to move the always-on-top panel.
+- **Settings** selects **32 x 32** or **64 x 64 physical-pixel** buttons and edits
+  comma-separated, per-position hotkeys. Defaults are **Ctrl+Shift+1** through
+  **Ctrl+Shift+9**, followed by **Ctrl+Shift+0**. Conflicts are displayed, not silently
+  ignored. Add more shortcuts if there are more than ten windows.
+- **X** closes only VSDeck. It does not affect any VS Code process.
+
+Settings, workspace ordering, and panel position persist in
+`%LOCALAPPDATA%\VSDeck\settings.json`. Closed workspaces are retained in the saved
+order. Workspace directory identities are preferred to title/project identities.
+Saved 30-pixel settings from the initial version are automatically migrated to
+32 pixels without changing ordering, hotkeys, or position.
+If multiple windows open the same workspace, both reflect that workspace's
+sessions; their individual order cannot reliably survive a restart.
+
+## Status integration and limitations
+
+This version monitors Copilot SDK/CLI **VS Code agent-host** sessions written to
+`%USERPROFILE%\.copilot\session-state`. It reads their `workspace.yaml` and
+`events.jsonl` incrementally, and verifies the owning process from `inuse.*.lock`
+before treating a session as live. It also reads workspace folder metadata from
+live `.copilot\ide` lock files without using their connection credentials.
+Local polling and flashing use a 750 ms interval. Pending questions take priority over running work,
+including when another session in the same workspace is idle.
+
+These are local implementation details, not a stable public Copilot telemetry
+API. Traditional extension-host Copilot Chat, unconfigured remote logs, custom
+VS Code profiles/data locations, and future event-format changes may have no
+usable source. Such windows remain visible but show **Unknown**, never invented
+idle/running state. A companion extension is not installed because VS Code does
+not offer a general public API for reading another extension's internal sessions.
+Logs are preferred to unreliable UI scraping. A verified remote source with no
+live sessions is idle; an unavailable source is unknown.
+
+### Existing dev-container windows
+
+The five existing dev-container workspaces are configured in `RemoteSources` in
+the local settings file. VSDeck uses the already-installed Docker and OpenSSH
+clients, your existing Docker context and SSH configuration, and the hosts' and
+containers' existing Python 3 interpreters. SSH is batch-only: no password or authentication
+dialog is opened. No extension, daemon, helper file, or package is installed in
+the containers. Only session files and process metadata are read.
+
+Containers are found by the `devcontainer.local_folder` label, not hard-coded
+container IDs, so a rebuilt container can be rediscovered. Remote window titles
+must match the project and Docker/SSH host. Initial history reads run in the
+background, without delaying discovery of local windows. Subsequent reads
+transfer only new events and only the fields needed for state, descriptions,
+and questions. Remote polling is every three seconds after the previous poll
+completes; timeouts and unavailable hosts are shown explicitly.
+
+SSH checks share **one persistent connection per host** instead of reconnecting
+for each workspace and poll. Commands are serialized through an in-memory
+Python helper launched on that connection; no helper file or service is installed.
+Handshake allowance is 25 seconds, SSH keepalives run every 15 seconds, and
+failed connections retry with shared 5/10/20/30-second capped backoff. Network
+interruptions preserve event offsets for incremental recovery. An unavailable
+connection still produces unknown status rather than stale success.
+Closing VSDeck terminates only its own SSH clients, never VS Code's existing
+connections. SSH configuration and the VS Code-owned tunnel are not changed.
+
+Additional sources can be added to `RemoteSources` in
+`%LOCALAPPDATA%\VSDeck\settings.json` while VSDeck is closed, then applied by
+restarting **only VSDeck**. For example:
+
+```json
+{
+  "Project": "my-project",
+  "Workspace": "/home/developer/work/my-project",
+  "SshHost": "my-docker-host",
+  "SessionRoot": "/home/vscode/.copilot/session-state"
+}
+```
+
+For local Docker Desktop, omit `SshHost`, set `DockerContext` to `desktop-linux`,
+and use the exact Windows directory label as `Workspace` (escaping backslashes
+in JSON). `SessionRoot` is the absolute Linux path **inside** the container.
+New, unconfigured windows still appear immediately with buttons and hotkeys,
+but show unknown if no supported local source can be associated.
+
+Workspace matching uses live IDE/session directory names and window titles.
+Ambiguous directory names are reported rather than guessing. Session histories
+without a live owning process are excluded. Windows foreground restrictions can
+occasionally deny activation; VSDeck reports that and flashes the VS Code taskbar
+button instead of trying to bypass Windows focus protection.
+
+Diagnostics are in `%LOCALAPPDATA%\VSDeck\status.json` and `vsdeck.log`.
+The status file contains local workspace/session descriptions, so treat it as
+potentially sensitive. Nothing is uploaded.
+Concurrent monitor messages are serialized before appending to the log. If the
+log is locked or unwritable, a visible logging warning reports the file path
+and diagnostic while monitoring continues. The warning clears when logging
+recovers, and the most recent blocked diagnostic is recorded. Failed remote
+polls are cleared before reporting their error so subsequent polls can retry.
+
+## Build and test
+
+Requires the .NET 10 SDK on Windows. No third-party NuGet packages are needed.
+
+```powershell
+dotnet build .\VSDeck.App\VSDeck.App.csproj -c Release
+dotnet run --project .\VSDeck.Tests\VSDeck.Tests.csproj -c Release
+dotnet run --project .\VSDeck.WindowsTests\VSDeck.WindowsTests.csproj -c Release
+dotnet run --project .\VSDeck.WindowsTests\VSDeck.WindowsTests.csproj -c Release -- --logging-only
+dotnet run --project .\VSDeck.WindowsTests\VSDeck.WindowsTests.csproj -c Release -- --ssh-only devbox
+dotnet publish .\VSDeck.App\VSDeck.App.csproj -c Release -o .\artifacts\VSDeck
+.\artifacts\VSDeck\VSDeck.exe
+```
+
+The published application requires the .NET 10 Windows Desktop runtime.
+The SDK installed for this build is local to `%LOCALAPPDATA%\VSDeck\dotnet`;
+its `dotnet.exe` can be used explicitly if `dotnet` on PATH has no SDK.
+The dependency-free test executable returns nonzero on assertion failure.
+The Windows test executable exercises actual desktop controls, mouse drag/drop,
+pixel sizing, hotkey conflict reporting, persistence, and native maximize/restore
+using its own disposable test windows. It does not close any VS Code windows.
+Use `--local-only` to run desktop checks without relying on SSH host availability.
+The focused logging checks reproduce the original concurrent-write race and
+verify serialized writes, compatible readers, exclusive locks, and recovery.
+The SSH checks use a configured host to verify connection reuse, parallel
+response isolation, command error recovery, and owned-client cleanup.
