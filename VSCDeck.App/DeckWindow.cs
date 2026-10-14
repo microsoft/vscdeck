@@ -254,6 +254,7 @@ public sealed class DeckWindow : Window
                 {
                     Position = index + 1, Handle = t.Window.Handle.ToInt64(), t.Window.ProcessId,
                     t.Window.Project, t.Window.Workspace, Identity = t.Window.Identity,
+                    t.Window.DebuggingBackground,
                     Activity = t.Status.Activity.ToString(),
                     t.CompletionPending,
                     Hotkey = index < hotkeys.Count ? hotkeys[index].Label : "Unassigned",
@@ -311,6 +312,16 @@ public sealed class DeckWindow : Window
             System.Windows.Automation.AutomationProperties.SetName(tile.Button, tile.Window.Project);
             tile.Button.Click += async (_, _) => await Activate(tile.Window.Handle);
             column.Children.Add(tile.Button);
+            tile.ColorStripe = new Border
+            {
+                Height = (settings.ButtonSize == 32 ? 1 : 2) / dpi.DpiScaleY,
+                Margin = new Thickness(0, 1 / dpi.DpiScaleY, 0, 0),
+                Background = Brushes.Transparent,
+                IsHitTestVisible = false
+            };
+            System.Windows.Automation.AutomationProperties.SetName(tile.ColorStripe,
+                "Workspace debugging color stripe");
+            column.Children.Add(tile.ColorStripe);
             if (settings.ButtonSize == 64)
             {
                 var grip = new Border { Background = new SolidColorBrush(Color.FromRgb(54, 60, 70)),
@@ -441,6 +452,11 @@ public sealed class DeckWindow : Window
         return index;
     }
 
+    internal static Brush ColorStripeBrush(string? debuggingBackground) =>
+        debuggingBackground is { } value
+            ? new SolidColorBrush(WorkspaceColorCustomization.ToColor(value))
+            : Brushes.Transparent;
+
     private void PaintTiles()
     {
         for (var index = 0; index < tiles.Count; index++)
@@ -457,6 +473,8 @@ public sealed class DeckWindow : Window
             SetRunningPulse(tile.Button, tile.Status.Activity == Activity.Running);
             SetCompletionBlip(tile.Button, tile.CompletionPending);
             SetQuestionBlip(tile.Button, tile.Status.Activity == Activity.Question);
+            if (tile.ColorStripe is not null)
+                tile.ColorStripe.Background = ColorStripeBrush(tile.Window.DebuggingBackground);
             tile.Label.Foreground = Brushes.White;
             var active = tile.Status.Sessions.Where(s => s.Activity is Activity.Running or Activity.Question).ToArray();
             var stateText = GetStateText(tile.Status.Activity, settings.ButtonSize == 32,
@@ -975,6 +993,7 @@ public sealed class DeckWindow : Window
         public WindowStatus Status { get; set; } = WindowStatus.Aggregate([]);
         public Button? Button { get; set; }
         public TextBlock? Label { get; set; }
+        public Border? ColorStripe { get; set; }
         public bool CompletionPending { get; set; }
     }
 

@@ -29,6 +29,12 @@ There is no public network service and nothing is uploaded to external services.
 - Hover a button for the workspace, every session, activity text, and questions.
   At 64 pixels, active session titles appear on the button; at 32 pixels, the
   button displays its position, state, and active-session count.
+- A stripe below each button reflects an explicitly customized
+  `workbench.colorCustomizations.statusBar.debuggingBackground` from that
+  workspace's `.vscode/settings.json` (or `.code-workspace` file). The stripe
+  has a one-physical-pixel gap below the button, then is two physical pixels
+  high in Large view and one in Compact view. Workspaces without that
+  customization retain the same transparent stripe space.
 - Click a button or press its global hotkey to bring its VS Code window forward.
   VSC Deck then focuses the GitHub Copilot Chat input so you can immediately
   type or dictate. If that window is already foreground, the same action also

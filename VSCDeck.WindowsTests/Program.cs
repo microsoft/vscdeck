@@ -42,6 +42,23 @@ internal static class Program
             Check(defaultSettings.SnapToScreenEdges, "Screen-edge snapping is enabled by default");
             Check(!defaultSettings.UseNotificationArea && !defaultSettings.StartWithWindows,
                 "Notification-area and Windows-startup options are disabled by default");
+            Check(WorkspaceColorCustomization.Parse("""
+                {
+                    // VS Code workspace settings support JSON with comments.
+                    "workbench.colorCustomizations": {
+                        "statusBar.debuggingBackground": "#ffff33",
+                    },
+                }
+                """) == "#FFFFFF33" &&
+                WorkspaceColorCustomization.Parse("""
+                { "settings": { "workbench.colorCustomizations": {
+                    "statusBar.debuggingBackground": "#1a2b"
+                } } }
+                """) == "#BB11AA22",
+                "Workspace color parsing supports JSONC, folder settings, workspace settings, and VS Code RGBA colors");
+            Check(WorkspaceColorCustomization.Parse("""{"editor.fontSize": 14}""") is null &&
+                DeckWindow.ColorStripeBrush(null) is SolidColorBrush { Color.A: 0 },
+                "A workspace without an explicit debugging color uses a transparent stripe");
             var startupTestPath = @"Software\VSCDeck.Tests." + Guid.NewGuid().ToString("N");
             try
             {
@@ -143,6 +160,11 @@ internal static class Program
                     "All configured containers provide readable remote telemetry");
                 Check(configured.All(s => remote.Windows.Any(w => w.Workspace == s.Identity)),
                     "Every configured remote workspace maps to its existing VS Code window");
+                var juno39 = configured.FirstOrDefault(source =>
+                    source.Workspace.Contains("juno39_mcma", StringComparison.OrdinalIgnoreCase));
+                if (juno39 is not null)
+                    Check(remote.Windows.Single(juno39.Matches).DebuggingBackground == "#FFFFFF33",
+                        "Juno 39 resolves its yellow debugging status-bar customization");
                 foreach (var source in configured)
                 {
                     var status = WindowStatus.Aggregate(remote.Sessions.Where(s => s.Workspace == source.Identity), sourceAvailable: true);
@@ -301,6 +323,20 @@ internal static class Program
                 "Large title-bar controls have no tooltips");
             Check(tileButtons.All(b => Math.Abs(b.ActualWidth * dpi.DpiScaleX - 64) < .1 &&
                 Math.Abs(b.ActualHeight * dpi.DpiScaleY - 64) < .1), "All large buttons are exactly 64 x 64 physical pixels");
+            var largeStripes = tileButtons.Select(ColorStripe).ToArray();
+            Check(largeStripes.All(stripe =>
+                    Math.Abs(stripe.Height * dpi.DpiScaleY - 2) < .1 &&
+                    Math.Abs(stripe.Margin.Top * dpi.DpiScaleY - 1) < .1),
+                "Large workspace stripes are two physical pixels high with a one-pixel button gap");
+            if (configured.Any(source =>
+                    source.Workspace.Contains("juno39_mcma", StringComparison.OrdinalIgnoreCase)))
+            {
+                PumpUntil(() => largeStripes.Any(stripe => stripe.Background is SolidColorBrush
+                    { Color.R: 255, Color.G: 255, Color.B: 51, Color.A: 255 }), 90000);
+                Check(largeStripes.Any(stripe => stripe.Background is SolidColorBrush
+                        { Color.R: 255, Color.G: 255, Color.B: 51, Color.A: 255 }),
+                    "Juno 39 displays its yellow workspace-color stripe");
+            }
             var runningButton = tileButtons.First(b =>
                 b.Content is TextBlock label && label.Text.Contains("Running"));
             Check(runningButton is not null, "Real live agent session displays Running");
@@ -393,9 +429,9 @@ internal static class Program
                     "Hover adds a glass highlight without replacing the status-colored surface");
             }
             finally { SetCursorPos(hoverCursor.X, hoverCursor.Y); }
-            Check(tileButtons.All(b => VisualTreeHelper.GetParent(b) is StackPanel p && p.Children.OfType<Border>().Any()), "Each button has a separate draggable grip");
-            Check(tileButtons.Select(b => (StackPanel)VisualTreeHelper.GetParent(b))
-                .SelectMany(p => p.Children.OfType<Border>()).All(grip => grip.ToolTip is null),
+            Check(tileButtons.All(button => ReorderGrip(button) is not null),
+                "Each button has a separate draggable grip");
+            Check(tileButtons.Select(ReorderGrip).All(grip => grip.ToolTip is null),
                 "Large reorder grips have no tooltips");
 
             using (var lockedLog = new FileStream(AppStorage.LogPath, FileMode.OpenOrCreate,
@@ -432,8 +468,7 @@ internal static class Program
             {
                 var firstName = System.Windows.Automation.AutomationProperties.GetName(tileButtons[0]);
                 var targetName = System.Windows.Automation.AutomationProperties.GetName(tileButtons[1]);
-                var parent = (StackPanel)VisualTreeHelper.GetParent(tileButtons[0]);
-                var grip = parent.Children.OfType<Border>().Single();
+                var grip = ReorderGrip(tileButtons[0]);
                 var from = grip.PointToScreen(new Point(grip.ActualWidth / 2, grip.ActualHeight / 2));
                 var to = tileButtons[1].PointToScreen(new Point(tileButtons[1].ActualWidth / 2, tileButtons[1].ActualHeight / 2));
                 var markerSeen = false;
@@ -481,7 +516,7 @@ internal static class Program
                     {
                         var middle = tileButtons[tileButtons.Count / 2];
                         var middleName = System.Windows.Automation.AutomationProperties.GetName(middle);
-                        var middleGrip = ((StackPanel)VisualTreeHelper.GetParent(middle)).Children.OfType<Border>().Single();
+                        var middleGrip = ReorderGrip(middle);
                         var rightmost = tileButtons[^1];
                         DragWithMouse(middleGrip, rightmost.PointToScreen(
                             new Point(rightmost.ActualWidth - 1, rightmost.ActualHeight / 2)));
@@ -490,7 +525,7 @@ internal static class Program
                             "A middle button can be dragged to the right edge");
 
                         middle = tileButtons[^1];
-                        middleGrip = ((StackPanel)VisualTreeHelper.GetParent(middle)).Children.OfType<Border>().Single();
+                        middleGrip = ReorderGrip(middle);
                         var leftmost = tileButtons[0];
                         DragWithMouse(middleGrip, leftmost.PointToScreen(new Point(1, leftmost.ActualHeight / 2)));
                         tileButtons = TileButtons(deck);
@@ -521,8 +556,14 @@ internal static class Program
             Check(compactButtons.All(b => b.Background is LinearGradientBrush &&
                 b.Template.FindName("GlassSheen", b) is Border),
                 "Compact buttons retain the same glass finish within their exact pixel bounds");
+            Check(compactButtons.Select(ColorStripe).All(stripe =>
+                    Math.Abs(stripe.Height * dpi.DpiScaleY - 1) < .1 &&
+                    Math.Abs(stripe.Margin.Top * dpi.DpiScaleY - 1) < .1),
+                "Compact workspace stripes are one physical pixel high with a one-pixel button gap");
             Check(compactButtons.All(b => VisualTreeHelper.GetParent(b) is StackPanel p &&
-                !p.Children.OfType<Border>().Any()), "Compact buttons omit reorder grips");
+                p.Children.OfType<Border>().All(border =>
+                    System.Windows.Automation.AutomationProperties.GetName(border) ==
+                    "Workspace debugging color stripe")), "Compact buttons omit reorder grips");
             Check(Descendants<TextBlock>(compact).Where(t => t.Text == "VSC Deck  ::")
                     .All(t => !t.IsVisible) &&
                 Descendants<Button>(compact).Where(b =>
@@ -722,6 +763,16 @@ internal static class Program
             foreach (var descendant in Descendants<T>(child)) yield return descendant;
         }
     }
+
+    private static Border ColorStripe(Button button) =>
+        ((StackPanel)VisualTreeHelper.GetParent(button)).Children.OfType<Border>().Single(border =>
+            System.Windows.Automation.AutomationProperties.GetName(border) ==
+            "Workspace debugging color stripe");
+
+    private static Border ReorderGrip(Button button) =>
+        ((StackPanel)VisualTreeHelper.GetParent(button)).Children.OfType<Border>().Single(border =>
+            System.Windows.Automation.AutomationProperties.GetName(border) !=
+            "Workspace debugging color stripe");
 
     private static void PumpUntil(Func<bool> condition, int timeout = 4000)
     {

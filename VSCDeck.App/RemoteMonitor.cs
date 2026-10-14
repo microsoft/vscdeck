@@ -29,7 +29,7 @@ public sealed class RemoteSource
 }
 
 internal sealed record RemoteSnapshot(List<SessionStatus> Sessions, Dictionary<string, string> Errors,
-    List<string> Warnings, HashSet<string> Available);
+    List<string> Warnings, HashSet<string> Available, Dictionary<string, string> DebuggingBackgrounds);
 
 internal sealed class RemoteMonitor : IDisposable
 {
@@ -38,7 +38,7 @@ internal sealed class RemoteMonitor : IDisposable
     private bool disposed;
     private DateTimeOffset nextPoll;
     private Task<RemoteSnapshot[]>? poll;
-    private RemoteSnapshot cached = new([], [], [], []);
+    private RemoteSnapshot cached = new([], [], [], [], []);
     public RemoteMonitor(IEnumerable<RemoteSource> sources)
     {
         readers = sources.Select(source =>
@@ -64,12 +64,14 @@ internal sealed class RemoteMonitor : IDisposable
             var completed = poll;
             poll = null;
             nextPoll = DateTimeOffset.UtcNow.AddSeconds(3);
-            cached = new([], [], [], []);
+            cached = new([], [], [], [], []);
             var results = completed.GetAwaiter().GetResult();
             cached = new(results.SelectMany(r => r.Sessions).ToList(),
                 results.SelectMany(r => r.Errors).ToDictionary(p => p.Key, p => p.Value),
                 results.SelectMany(r => r.Warnings).ToList(),
-                results.SelectMany(r => r.Available).ToHashSet(StringComparer.OrdinalIgnoreCase));
+                results.SelectMany(r => r.Available).ToHashSet(StringComparer.OrdinalIgnoreCase),
+                results.SelectMany(r => r.DebuggingBackgrounds)
+                    .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.OrdinalIgnoreCase));
         }
         if (poll is null && DateTimeOffset.UtcNow >= nextPoll)
             poll = Task.WhenAll(readers.Select(r => r.Scan()));
@@ -83,6 +85,8 @@ internal sealed class RemoteMonitor : IDisposable
         private string? container;
         private DateTimeOffset rediscoverAt;
         private string lastError = "";
+        private string lastColorError = "";
+        private string? debuggingBackground;
 
         public async Task<RemoteSnapshot> Scan()
         {
@@ -129,12 +133,13 @@ internal sealed class RemoteMonitor : IDisposable
                     if (!workspaceName.Equals(source.Project, StringComparison.OrdinalIgnoreCase)) continue;
                     sessions.Add(tracker.Status with { Workspace = source.Identity });
                 }
+                var colorWarnings = await ReadWorkspaceColor();
                 lastError = "";
-                return new(sessions, [], [], [source.Identity]);
+                return new(sessions, [], colorWarnings, [source.Identity], Colors());
             }
             catch (OperationCanceledException) when (channel?.IsDisposed == true)
             {
-                return new([], [], [], []);
+                return new([], [], [], [], Colors());
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or
                 System.ComponentModel.Win32Exception or FormatException or OperationCanceledException or InvalidOperationException)
@@ -148,9 +153,44 @@ internal sealed class RemoteMonitor : IDisposable
                 var error = $"Remote status for {source.Project}: {ex.Message}";
                 if (lastError != error) AppStorage.Log(error);
                 lastError = error;
-                return new([], new() { [source.Identity] = error }, [error], []);
+                return new([], new() { [source.Identity] = error }, [error], [], Colors());
             }
         }
+
+        private async Task<List<string>> ReadWorkspaceColor()
+        {
+            try
+            {
+                string settings;
+                if (source.SshHost is null)
+                {
+                    var path = WorkspaceColorCustomization.SettingsPath(source.Workspace);
+                    settings = File.Exists(path) ? await File.ReadAllTextAsync(path) : "";
+                }
+                else
+                {
+                    settings = await channel!.Run(["python3", "-c", WorkspaceSettingsScript,
+                        source.Workspace]);
+                }
+                debuggingBackground = WorkspaceColorCustomization.Parse(settings);
+                lastColorError = "";
+                return [];
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or
+                FormatException or System.ComponentModel.Win32Exception or InvalidOperationException or
+                OperationCanceledException)
+            {
+                debuggingBackground = null;
+                var error = $"Workspace color for {source.Project}: {ex.Message}";
+                if (lastColorError != error) AppStorage.Log(error);
+                lastColorError = error;
+                return [error];
+            }
+        }
+
+        private Dictionary<string, string> Colors() => debuggingBackground is null
+            ? []
+            : new(StringComparer.OrdinalIgnoreCase) { [source.Identity] = debuggingBackground };
 
         private string[] ContextArgs() => source.SshHost is null ? ["--context", source.DockerContext] : [];
 
@@ -223,5 +263,14 @@ if result["available"]:
             "reset": reset, "started": min(starts)
         })
 json.dump(result, sys.stdout, ensure_ascii=False)
+""";
+
+    private const string WorkspaceSettingsScript = """
+import os, sys
+workspace = sys.argv[1]
+path = workspace if workspace.lower().endswith(".code-workspace") else os.path.join(workspace, ".vscode", "settings.json")
+if os.path.isfile(path):
+    with open(path, encoding="utf-8") as stream:
+        sys.stdout.write(stream.read())
 """;
 }
