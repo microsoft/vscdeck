@@ -11,6 +11,8 @@ public sealed class Settings
     public List<string> Order { get; set; } = [];
     public List<RemoteSource> RemoteSources { get; set; } = [];
     public bool SnapToScreenEdges { get; set; } = true;
+    public bool UseNotificationArea { get; set; }
+    public bool StartWithWindows { get; set; }
     public double? Left { get; set; }
     public double? Top { get; set; }
 }

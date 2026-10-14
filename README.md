@@ -52,6 +52,12 @@ There is no public network service and nothing is uploaded to external services.
   per-position hotkeys. Defaults are **Ctrl+Shift+1** through
   **Ctrl+Shift+9**, followed by **Ctrl+Shift+0**. Conflicts are displayed, not silently
   ignored. Add more shortcuts if there are more than ten windows.
+- Enable **Show in notification area instead of the taskbar** to replace the
+  full taskbar button with the VSC Deck tray icon. Its menu provides
+  **Show/Hide**, **Settings**, and **Exit** while the status panel keeps running.
+- Enable **Start VSC Deck when I sign in to Windows** to register the current
+  executable in the current user's Windows startup settings. This option does
+  not require administrator rights and is disabled by default.
 - **X** closes only VSC Deck. It does not affect any VS Code process.
 
 Settings, workspace ordering, and panel position persist in

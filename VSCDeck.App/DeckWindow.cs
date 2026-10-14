@@ -9,9 +9,12 @@ using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
+using System.Windows.Media.Imaging;
 using System.Windows.Data;
 using System.Windows.Threading;
 using VSCDeck.Core;
+using Drawing = System.Drawing;
+using Forms = System.Windows.Forms;
 
 namespace VSCDeck.App;
 
@@ -45,6 +48,9 @@ public sealed class DeckWindow : Window
     private List<Hotkey> hotkeys;
     private HwndSource? source;
     private InsertionAdorner? reorderMarker;
+    private Forms.NotifyIcon? notificationIcon;
+    private Drawing.Icon? notificationIconImage;
+    private Forms.ToolStripMenuItem? notificationVisibilityItem;
     private bool scanning;
     private bool closing;
     private string hotkeyWarning = "";
@@ -52,6 +58,11 @@ public sealed class DeckWindow : Window
     private string hotkeySignature = "";
     internal int? ReorderInsertionIndex { get; private set; }
     internal bool IsReorderMarkerVisible => reorderMarker?.Visibility == Visibility.Visible;
+    internal bool IsNotificationIconVisible => notificationIcon?.Visible == true;
+    internal IReadOnlyList<string> NotificationMenuItems =>
+        notificationIcon?.ContextMenuStrip?.Items.OfType<Forms.ToolStripItem>()
+            .Select(item => item.Text).Where(text => !string.IsNullOrEmpty(text))
+            .Select(text => text!).ToArray() ?? [];
 
     public DeckWindow(Settings settings)
     {
@@ -59,6 +70,9 @@ public sealed class DeckWindow : Window
         monitor = new CopilotMonitor(settings.RemoteSources);
         hotkeys = Hotkey.ParseList(settings.Hotkeys);
         Title = "VSC Deck - Copilot overview";
+        Icon = BitmapFrame.Create(new Uri(
+            "pack://application:,,,/VSCDeck;component/Assets/VSCDeck.ico"));
+        ShowInTaskbar = !settings.UseNotificationArea;
         Topmost = true;
         ShowActivated = false;
         WindowStyle = WindowStyle.None;
@@ -144,6 +158,7 @@ public sealed class DeckWindow : Window
         Grid.SetColumnSpan(notice, 2);
         root.Children.Add(notice);
         Content = root;
+        UpdateNotificationAreaMode();
         UpdateViewMode();
         SourceInitialized += (_, _) =>
         {
@@ -171,6 +186,7 @@ public sealed class DeckWindow : Window
             UnregisterHotkeys();
             SavePosition();
             source?.RemoveHook(WindowMessages);
+            DisposeNotificationIcon();
         };
     }
 
@@ -805,16 +821,89 @@ public sealed class DeckWindow : Window
         if (!accepted) return;
         settings.ButtonSize = dialog.SelectedSize;
         settings.SnapToScreenEdges = dialog.SelectedSnapToScreenEdges;
+        settings.UseNotificationArea = dialog.SelectedUseNotificationArea;
+        settings.StartWithWindows = dialog.SelectedStartWithWindows;
         settings.Hotkeys = dialog.SelectedHotkeys;
         settings.RemoteSources = dialog.SelectedRemoteSources;
         hotkeys = Hotkey.ParseList(settings.Hotkeys);
         monitor.Dispose();
         monitor = new CopilotMonitor(settings.RemoteSources);
         SaveSettings();
+        UpdateNotificationAreaMode();
         BuildTiles();
         RegisterHotkeys();
         UpdateNotice([]);
         await Refresh();
+    }
+
+    private void UpdateNotificationAreaMode()
+    {
+        ShowInTaskbar = !settings.UseNotificationArea;
+        if (!settings.UseNotificationArea)
+        {
+            DisposeNotificationIcon();
+            return;
+        }
+        if (notificationIcon is not null) return;
+        var resource = Application.GetResourceStream(new Uri(
+            "pack://application:,,,/VSCDeck;component/Assets/VSCDeck.ico")) ??
+            throw new IOException("The VSC Deck notification icon resource is unavailable.");
+        using (resource.Stream)
+        using (var icon = new Drawing.Icon(resource.Stream))
+            notificationIconImage = (Drawing.Icon)icon.Clone();
+        var menu = new Forms.ContextMenuStrip();
+        notificationVisibilityItem = new Forms.ToolStripMenuItem("Hide VSC Deck");
+        notificationVisibilityItem.Click += (_, _) =>
+            Dispatcher.BeginInvoke(new Action(TogglePanelVisibility));
+        var settingsItem = new Forms.ToolStripMenuItem("Settings");
+        settingsItem.Click += (_, _) => Dispatcher.BeginInvoke(new Action(async () =>
+        {
+            ShowPanel();
+            await OpenSettings();
+        }));
+        var exitItem = new Forms.ToolStripMenuItem("Exit");
+        exitItem.Click += (_, _) => Dispatcher.BeginInvoke(new Action(Close));
+        menu.Items.Add(notificationVisibilityItem);
+        menu.Items.Add(settingsItem);
+        menu.Items.Add(new Forms.ToolStripSeparator());
+        menu.Items.Add(exitItem);
+        notificationIcon = new Forms.NotifyIcon
+        {
+            ContextMenuStrip = menu,
+            Icon = notificationIconImage,
+            Text = "VSC Deck",
+            Visible = true
+        };
+        notificationIcon.DoubleClick += (_, _) => Dispatcher.BeginInvoke(new Action(ShowPanel));
+    }
+
+    internal void TogglePanelVisibility()
+    {
+        if (IsVisible) Hide();
+        else ShowPanel();
+        if (notificationVisibilityItem is not null)
+            notificationVisibilityItem.Text = IsVisible ? "Hide VSC Deck" : "Show VSC Deck";
+    }
+
+    private void ShowPanel()
+    {
+        if (!IsVisible) Show();
+        if (notificationVisibilityItem is not null)
+            notificationVisibilityItem.Text = "Hide VSC Deck";
+    }
+
+    private void DisposeNotificationIcon()
+    {
+        if (notificationIcon is not null)
+        {
+            notificationIcon.Visible = false;
+            notificationIcon.ContextMenuStrip?.Dispose();
+            notificationIcon.Dispose();
+            notificationIcon = null;
+        }
+        notificationVisibilityItem = null;
+        notificationIconImage?.Dispose();
+        notificationIconImage = null;
     }
 
     private void SwitchToLargeMode()

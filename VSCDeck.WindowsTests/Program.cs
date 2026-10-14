@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text.Json;
+using Microsoft.Win32;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
@@ -35,9 +36,26 @@ internal static class Program
         var testWindows = new List<Window>();
         try
         {
-            Check(new Settings().Hotkeys == string.Join(", ", "1234567890".Select(key => $"Ctrl+Shift+{key}")),
+            var defaultSettings = new Settings();
+            Check(defaultSettings.Hotkeys == string.Join(", ", "1234567890".Select(key => $"Ctrl+Shift+{key}")),
                 "Default shortcuts use Ctrl+Shift in left-to-right numeric order");
-            Check(new Settings().SnapToScreenEdges, "Screen-edge snapping is enabled by default");
+            Check(defaultSettings.SnapToScreenEdges, "Screen-edge snapping is enabled by default");
+            Check(!defaultSettings.UseNotificationArea && !defaultSettings.StartWithWindows,
+                "Notification-area and Windows-startup options are disabled by default");
+            var startupTestPath = @"Software\VSCDeck.Tests." + Guid.NewGuid().ToString("N");
+            try
+            {
+                using var startupKey = Registry.CurrentUser.CreateSubKey(startupTestPath, true);
+                const string startupValue = "VSCDeck-Test";
+                const string executablePath = @"C:\Program Files\VSC Deck\VSCDeck.exe";
+                WindowsStartup.SetEnabled(startupKey, startupValue, true, executablePath);
+                Check(Equals(startupKey.GetValue(startupValue), $"\"{executablePath}\""),
+                    "Windows startup registration quotes the executable path");
+                WindowsStartup.SetEnabled(startupKey, startupValue, false, executablePath);
+                Check(startupKey.GetValue(startupValue) is null,
+                    "Disabling Windows startup removes its current-user registration");
+            }
+            finally { Registry.CurrentUser.DeleteSubKeyTree(startupTestPath, false); }
             var sshConfig = Path.Combine(Path.GetTempPath(), "vscdeck-ssh-" + Guid.NewGuid() + ".config");
             File.WriteAllText(sshConfig, "Host devbox backup\n  HostName example\nHost *.internal !blocked\n");
             try
@@ -87,6 +105,8 @@ internal static class Program
                 "Window does not snap beyond the eight-pixel threshold");
             var saved = AppStorage.Load();
             saved.ButtonSize = 30;
+            saved.UseNotificationArea = true;
+            saved.StartWithWindows = true;
             AppStorage.Save(saved);
             var migrated = AppStorage.Load();
             Check(migrated.ButtonSize == 32 && AppStorage.Load().ButtonSize == 32,
@@ -94,8 +114,10 @@ internal static class Program
             Check(migrated.Order.SequenceEqual(saved.Order) && migrated.Hotkeys == saved.Hotkeys &&
                 migrated.RemoteSources.Select(s => s.Identity).SequenceEqual(saved.RemoteSources.Select(s => s.Identity)) &&
                 migrated.SnapToScreenEdges == saved.SnapToScreenEdges &&
+                migrated.UseNotificationArea == saved.UseNotificationArea &&
+                migrated.StartWithWindows == saved.StartWithWindows &&
                 migrated.Left == saved.Left && migrated.Top == saved.Top,
-                "Size migration preserves order, hotkeys, sources, snapping, and position");
+                "Size migration preserves order, hotkeys, sources, startup, tray, snapping, and position");
             var discovery = RemoteSourceDiscovery.Discover().GetAwaiter().GetResult();
             foreach (var warning in discovery.Warnings) Console.WriteLine(warning);
             var devContainerWindows = NativeWindows.Discover()
@@ -194,12 +216,30 @@ internal static class Program
                 "A real window snaps exactly to bottom-right monitor edges");
 
             var settings = new Settings { ButtonSize = 64, Left = SystemParameters.PrimaryScreenWidth - 50, Top = 180,
+                UseNotificationArea = true,
                 RemoteSources = configured };
             var deck = new DeckWindow(settings);
             testWindows.Add(deck);
             deck.Show();
             PumpUntil(() => TileButtons(deck).Count > 0, 30000);
             var tileButtons = TileButtons(deck);
+            var iconResource = Application.GetResourceStream(
+                new Uri("pack://application:,,,/VSCDeck;component/Assets/VSCDeck.ico"));
+            using (var iconReader = new BinaryReader(iconResource.Stream, System.Text.Encoding.UTF8, true))
+            {
+                Check(deck.Icon is not null && iconReader.ReadUInt16() == 0 &&
+                    iconReader.ReadUInt16() == 1 && iconReader.ReadUInt16() == 9,
+                    "Window and executable use the nine-frame VSC Deck taskbar icon");
+            }
+            Check(!deck.ShowInTaskbar && deck.IsNotificationIconVisible &&
+                deck.NotificationMenuItems.SequenceEqual(["Hide VSC Deck", "Settings", "Exit"]),
+                "Notification-area mode replaces the taskbar button and provides panel controls");
+            deck.TogglePanelVisibility();
+            Check(!deck.IsVisible && deck.NotificationMenuItems.Contains("Show VSC Deck"),
+                "Notification icon can hide the status panel");
+            deck.TogglePanelVisibility();
+            Check(deck.IsVisible && deck.NotificationMenuItems.Contains("Hide VSC Deck"),
+                "Notification icon can restore the status panel");
             Check(tileButtons.Count == baseline.Count && tileButtons.Count > 0, "Every existing VS Code top-level window discovered");
             Check(deck.Topmost, "Panel is always on top");
             Check(deck.Left + deck.ActualWidth <= SystemParameters.VirtualScreenLeft + SystemParameters.VirtualScreenWidth,
@@ -512,6 +552,12 @@ internal static class Program
             var snapOption = Descendants<CheckBox>(dialog).Single(c => Equals(c.Content, "Snap to screen edges"));
             Check(snapOption.IsChecked == true, "Settings enables screen-edge snapping by default");
             snapOption.IsChecked = false;
+            var notificationOption = Descendants<CheckBox>(dialog).Single(c =>
+                Equals(c.Content, "Show in notification area instead of the taskbar"));
+            var startupOption = Descendants<CheckBox>(dialog).Single(c =>
+                Equals(c.Content, "Start VSC Deck when I sign in to Windows"));
+            Check(notificationOption.IsChecked == false && startupOption.IsChecked == false,
+                "Settings exposes default-off notification-area and Windows-startup options");
             Check(Descendants<Button>(dialog).Any(b => Equals(b.Content, "Discover Docker/SSH sources")),
                 "Settings offers Docker and SSH source discovery");
             var save = Descendants<Button>(dialog).Single(b => Equals(b.Content, "Save"));

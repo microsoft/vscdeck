@@ -31,6 +31,7 @@ public partial class App : Application
         {
             var fresh = !File.Exists(AppStorage.SettingsPath);
             var settings = AppStorage.Load();
+            if (settings.StartWithWindows) WindowsStartup.SetEnabled(true);
             if (fresh)
             {
                 var discovery = Task.Run(RemoteSourceDiscovery.Discover).GetAwaiter().GetResult();
@@ -42,7 +43,8 @@ public partial class App : Application
             MainWindow.Show();
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException or
-            FormatException or System.ComponentModel.Win32Exception)
+            FormatException or System.ComponentModel.Win32Exception or System.Security.SecurityException or
+            InvalidOperationException)
         {
             AppStorage.Log(ex.ToString());
             MessageBox.Show("Unable to load VSC Deck settings:\n" + ex.Message +
