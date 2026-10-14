@@ -15,6 +15,7 @@ namespace VSDeck.App;
 
 public sealed class DeckWindow : Window
 {
+    private const int SnapThresholdPixels = 8;
     private readonly Settings settings;
     private readonly CopilotMonitor monitor;
     private readonly StackPanel buttons = new() { Orientation = Orientation.Horizontal };
@@ -27,6 +28,10 @@ public sealed class DeckWindow : Window
     private readonly List<Tile> tiles = [];
     private readonly List<int> registered = [];
     private readonly Dictionary<int, nint> hotkeyTargets = [];
+    private static readonly ControlTemplate CaptionButtonTemplate = CreateCaptionButtonTemplate(
+        Color.FromRgb(63, 69, 79), Color.FromRgb(76, 83, 94));
+    private static readonly ControlTemplate CloseButtonTemplate = CreateCaptionButtonTemplate(
+        Color.FromRgb(196, 43, 28), Color.FromRgb(160, 35, 24));
     private static readonly ControlTemplate TileTemplate = CreateTileTemplate();
     private List<Hotkey> hotkeys;
     private HwndSource? source;
@@ -62,16 +67,15 @@ public sealed class DeckWindow : Window
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         header = new DockPanel { Background = new SolidColorBrush(Color.FromRgb(40, 45, 55)) };
-        var close = new Button { Content = "X" };
+        var close = CreateCaptionButton("×", "Close VSDeck", CloseButtonTemplate);
         close.Click += (_, _) => Close();
         DockPanel.SetDock(close, Dock.Right);
         header.Children.Add(close);
-        var options = new Button { Content = "Settings" };
+        var options = CreateCaptionButton("⚙", "Settings", CaptionButtonTemplate);
         options.Click += (_, _) => OpenSettings();
         DockPanel.SetDock(options, Dock.Right);
         header.Children.Add(options);
-        var compact = new Button { Content = "↙" };
-        System.Windows.Automation.AutomationProperties.SetName(compact, "Switch to compact view");
+        var compact = CreateCaptionButton("↙", "Switch to compact view", CaptionButtonTemplate);
         compact.Click += (_, _) => SwitchToCompactMode();
         DockPanel.SetDock(compact, Dock.Right);
         header.Children.Add(compact);
@@ -81,7 +85,7 @@ public sealed class DeckWindow : Window
         {
             if (args.ClickCount != 1) return;
             DragMove();
-            SavePosition();
+            SnapAndSavePosition();
         };
         header.Children.Add(caption);
         Grid.SetColumnSpan(header, 3);
@@ -91,7 +95,9 @@ public sealed class DeckWindow : Window
         Grid.SetRow(scroll, 1);
         root.Children.Add(scroll);
         compactModeToggle = new Button { Content = "↗", Padding = new(0), Margin = new(0, 3, 0, 3),
-            VerticalAlignment = VerticalAlignment.Stretch };
+            BorderThickness = new(0), Background = Brushes.Transparent, Foreground = Brushes.White,
+            FontFamily = new FontFamily("Segoe UI Symbol"), FontSize = 14,
+            Template = CaptionButtonTemplate, VerticalAlignment = VerticalAlignment.Stretch };
         System.Windows.Automation.AutomationProperties.SetName(compactModeToggle, "Switch to large view");
         compactModeToggle.Click += (_, _) => SwitchToLargeMode();
         Grid.SetRow(compactModeToggle, 1);
@@ -114,7 +120,7 @@ public sealed class DeckWindow : Window
         {
             if (args.ClickCount != 1) return;
             DragMove();
-            SavePosition();
+            SnapAndSavePosition();
         };
         Grid.SetColumn(compactDragHandle, 2);
         Grid.SetRowSpan(compactDragHandle, 3);
@@ -420,6 +426,47 @@ public sealed class DeckWindow : Window
         return template;
     }
 
+    private static Button CreateCaptionButton(string content, string automationName, ControlTemplate template)
+    {
+        var button = new Button
+        {
+            Content = content,
+            Width = 28,
+            Height = 28,
+            Padding = new(0),
+            BorderThickness = new(0),
+            Background = Brushes.Transparent,
+            Foreground = Brushes.White,
+            FontFamily = new FontFamily("Segoe UI Symbol"),
+            FontSize = 14,
+            Template = template
+        };
+        System.Windows.Automation.AutomationProperties.SetName(button, automationName);
+        return button;
+    }
+
+    private static ControlTemplate CreateCaptionButtonTemplate(Color hoverColor, Color pressedColor)
+    {
+        var surface = new FrameworkElementFactory(typeof(Border)) { Name = "CaptionSurface" };
+        surface.SetValue(Border.BackgroundProperty, Brushes.Transparent);
+        var presenter = new FrameworkElementFactory(typeof(ContentPresenter));
+        presenter.SetValue(FrameworkElement.HorizontalAlignmentProperty, HorizontalAlignment.Center);
+        presenter.SetValue(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Center);
+        presenter.SetBinding(ContentPresenter.ContentProperty, new Binding("Content")
+        {
+            RelativeSource = new RelativeSource(RelativeSourceMode.TemplatedParent)
+        });
+        surface.AppendChild(presenter);
+        var template = new ControlTemplate(typeof(Button)) { VisualTree = surface };
+        var hover = new Trigger { Property = IsMouseOverProperty, Value = true };
+        hover.Setters.Add(new Setter(Border.BackgroundProperty, new SolidColorBrush(hoverColor), "CaptionSurface"));
+        template.Triggers.Add(hover);
+        var pressed = new Trigger { Property = Button.IsPressedProperty, Value = true };
+        pressed.Setters.Add(new Setter(Border.BackgroundProperty, new SolidColorBrush(pressedColor), "CaptionSurface"));
+        template.Triggers.Add(pressed);
+        return template;
+    }
+
     private static LinearGradientBrush CreateGlassBrush(Color color)
     {
         static Color Blend(Color from, Color to, double amount) => Color.FromRgb(
@@ -492,6 +539,7 @@ public sealed class DeckWindow : Window
         var dialog = new SettingsWindow(settings) { Owner = this };
         if (dialog.ShowDialog() != true) return;
         settings.ButtonSize = dialog.SelectedSize;
+        settings.SnapToScreenEdges = dialog.SelectedSnapToScreenEdges;
         settings.Hotkeys = dialog.SelectedHotkeys;
         hotkeys = Hotkey.ParseList(settings.Hotkeys);
         SaveSettings();
@@ -543,6 +591,15 @@ public sealed class DeckWindow : Window
         settings.Order = Identity.RememberOrder(tiles.Select(t => t.Window.Identity), settings.Order);
         SaveSettings();
     }
+
+    private void SnapAndSavePosition()
+    {
+        ApplyScreenEdgeSnap(new WindowInteropHelper(this).Handle, settings.SnapToScreenEdges);
+        SavePosition();
+    }
+
+    internal static NativeWindows.PixelOffset ApplyScreenEdgeSnap(nint hwnd, bool enabled) =>
+        enabled ? NativeWindows.SnapToMonitorEdges(hwnd, SnapThresholdPixels) : default;
 
     private void SaveSettings()
     {

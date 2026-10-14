@@ -10,6 +10,7 @@ public sealed class Settings
         "Ctrl+Shift+1, Ctrl+Shift+2, Ctrl+Shift+3, Ctrl+Shift+4, Ctrl+Shift+5, Ctrl+Shift+6, Ctrl+Shift+7, Ctrl+Shift+8, Ctrl+Shift+9, Ctrl+Shift+0";
     public List<string> Order { get; set; } = [];
     public List<RemoteSource> RemoteSources { get; set; } = [];
+    public bool SnapToScreenEdges { get; set; } = true;
     public double? Left { get; set; }
     public double? Top { get; set; }
 }

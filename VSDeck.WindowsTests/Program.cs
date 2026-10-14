@@ -19,6 +19,8 @@ internal static class Program
     [DllImport("user32.dll")] private static extern bool SetCursorPos(int x, int y);
     [DllImport("user32.dll")] private static extern bool GetCursorPos(out CursorPoint point);
     [DllImport("user32.dll")] private static extern void mouse_event(uint flags, uint dx, uint dy, uint data, nuint extra);
+    [DllImport("user32.dll", SetLastError = true)] private static extern bool SetWindowPos(
+        nint hwnd, nint insertAfter, int x, int y, int width, int height, uint flags);
     [StructLayout(LayoutKind.Sequential)] private struct CursorPoint { public int X; public int Y; }
 
     [STAThread]
@@ -34,6 +36,17 @@ internal static class Program
         {
             Check(new Settings().Hotkeys == string.Join(", ", "1234567890".Select(key => $"Ctrl+Shift+{key}")),
                 "Default shortcuts use Ctrl+Shift in left-to-right numeric order");
+            Check(new Settings().SnapToScreenEdges, "Screen-edge snapping is enabled by default");
+            var monitorBounds = new NativeWindows.PixelRect(-1920, -200, 0, 880);
+            Check(NativeWindows.CalculateSnapOffset(
+                new NativeWindows.PixelRect(-1913, -192, -1513, 108), monitorBounds, 8) == new NativeWindows.PixelOffset(-7, -8),
+                "Window snaps to the top and left edges of a monitor with negative coordinates");
+            Check(NativeWindows.CalculateSnapOffset(
+                new NativeWindows.PixelRect(-407, 572, -7, 872), monitorBounds, 8) == new NativeWindows.PixelOffset(7, 8),
+                "Window snaps to the bottom and right edges of a secondary monitor");
+            Check(NativeWindows.CalculateSnapOffset(
+                new NativeWindows.PixelRect(-1911, -191, -1511, 109), monitorBounds, 8) == new NativeWindows.PixelOffset(0, 0),
+                "Window does not snap beyond the eight-pixel threshold");
             var saved = AppStorage.Load();
             saved.ButtonSize = 30;
             AppStorage.Save(saved);
@@ -42,8 +55,9 @@ internal static class Program
                 "Legacy 30-pixel size migrates persistently to 32");
             Check(migrated.Order.SequenceEqual(saved.Order) && migrated.Hotkeys == saved.Hotkeys &&
                 migrated.RemoteSources.Select(s => s.Identity).SequenceEqual(saved.RemoteSources.Select(s => s.Identity)) &&
+                migrated.SnapToScreenEdges == saved.SnapToScreenEdges &&
                 migrated.Left == saved.Left && migrated.Top == saved.Top,
-                "Size migration preserves order, hotkeys, sources, and position");
+                "Size migration preserves order, hotkeys, sources, snapping, and position");
             var configured = AppStorage.Load().RemoteSources
                 .Where(s => !args.Contains("--local-only") || s.SshHost is null).ToList();
             if (configured.Count > 0)
@@ -90,6 +104,28 @@ internal static class Program
             Check(NativeWindows.Activate(handle) is null, "Second foreground activation request");
             PumpUntil(() => !NativeWindows.IsZoomed(handle));
             Check(!NativeWindows.IsZoomed(handle), "Repeated foreground action restores test window");
+            var targetBounds = NativeWindows.GetWindowBounds(handle);
+            var screenBounds = NativeWindows.GetMonitorBounds(handle);
+            var targetWidth = targetBounds.Right - targetBounds.Left;
+            var targetHeight = targetBounds.Bottom - targetBounds.Top;
+            Check(SetWindowPos(handle, 0, screenBounds.Left + 3, screenBounds.Top + 3,
+                targetWidth, targetHeight, 0x0004 | 0x0010),
+                "Test window positioned near top-left monitor edges");
+            Check(DeckWindow.ApplyScreenEdgeSnap(handle, false) == default &&
+                NativeWindows.GetWindowBounds(handle) is var unsnapped &&
+                unsnapped.Left == screenBounds.Left + 3 && unsnapped.Top == screenBounds.Top + 3,
+                "A real near-edge window remains unsnapped when the setting is disabled");
+            Check(DeckWindow.ApplyScreenEdgeSnap(handle, true) == new NativeWindows.PixelOffset(-3, -3) &&
+                NativeWindows.GetWindowBounds(handle) is var topLeft &&
+                topLeft.Left == screenBounds.Left && topLeft.Top == screenBounds.Top,
+                "A real window snaps exactly to top-left monitor edges");
+            Check(SetWindowPos(handle, 0, screenBounds.Right - targetWidth - 3, screenBounds.Bottom - targetHeight - 3,
+                targetWidth, targetHeight, 0x0004 | 0x0010),
+                "Test window positioned near bottom-right monitor edges");
+            Check(DeckWindow.ApplyScreenEdgeSnap(handle, true) == new NativeWindows.PixelOffset(3, 3) &&
+                NativeWindows.GetWindowBounds(handle) is var bottomRight &&
+                bottomRight.Right == screenBounds.Right && bottomRight.Bottom == screenBounds.Bottom,
+                "A real window snaps exactly to bottom-right monitor edges");
 
             var settings = new Settings { ButtonSize = 64, Left = SystemParameters.PrimaryScreenWidth - 50, Top = 180,
                 RemoteSources = configured };
@@ -104,15 +140,25 @@ internal static class Program
                 "Panel remains on screen after expanding to discovered windows");
             var dpi = VisualTreeHelper.GetDpi(deck);
             var compactToggle = Descendants<Button>(deck).Single(b => Equals(b.Content, "↙"));
-            var settingsButton = Descendants<Button>(deck).Single(b => Equals(b.Content, "Settings"));
+            var settingsButton = Descendants<Button>(deck).Single(b =>
+                System.Windows.Automation.AutomationProperties.GetName(b) == "Settings");
+            var closeButton = Descendants<Button>(deck).Single(b =>
+                System.Windows.Automation.AutomationProperties.GetName(b) == "Close VSDeck");
             Check(compactToggle.IsVisible && compactToggle.PointToScreen(new Point()).X <
                 settingsButton.PointToScreen(new Point()).X,
                 "Large view shows the compact toggle to the left of Settings");
+            Check(new[] { compactToggle, settingsButton, closeButton }.All(b =>
+                    Math.Abs(b.ActualWidth - b.ActualHeight) < .1 &&
+                    Math.Abs(b.ActualWidth - compactToggle.ActualWidth) < .1 &&
+                    b.BorderThickness == new Thickness(0) &&
+                    b.Template.FindName("CaptionSurface", b) is Border { Background: SolidColorBrush brush } &&
+                    brush.Color.A == 0),
+                "Large title-bar actions are equal square, flat Windows-style caption buttons");
             Check(new FrameworkElement[]
                 {
                     compactToggle,
                     settingsButton,
-                    Descendants<Button>(deck).Single(b => Equals(b.Content, "X")),
+                    closeButton,
                     Descendants<TextBlock>(deck).Single(t => t.Text == "VSDeck  ::")
                 }.All(element => element.ToolTip is null),
                 "Large title-bar controls have no tooltips");
@@ -227,7 +273,8 @@ internal static class Program
                 !p.Children.OfType<Border>().Any()), "Compact buttons omit reorder grips");
             Check(Descendants<TextBlock>(compact).Where(t => t.Text == "VSDeck  ::")
                     .All(t => !t.IsVisible) &&
-                Descendants<Button>(compact).Where(b => Equals(b.Content, "Settings") || Equals(b.Content, "X"))
+                Descendants<Button>(compact).Where(b =>
+                    System.Windows.Automation.AutomationProperties.GetName(b) is "Settings" or "Close VSDeck")
                     .All(b => !b.IsVisible),
                 "Compact view hides the title bar, settings button, and close button");
             var largeToggle = Descendants<Button>(compact).Single(b => Equals(b.Content, "↗"));
@@ -235,6 +282,10 @@ internal static class Program
                 System.Windows.Automation.AutomationProperties.GetName(b) == "Move compact view");
             Check(largeToggle.ToolTip is null && moveGrip.ToolTip is null,
                 "Compact toggle and drag handle have no tooltips");
+            Check(largeToggle.BorderThickness == new Thickness(0) &&
+                largeToggle.Template.FindName("CaptionSurface", largeToggle) is Border
+                    { Background: SolidColorBrush brush } && brush.Color.A == 0,
+                "Compact expand toggle uses the flat transparent caption style");
             Check(Math.Abs(moveGrip.ActualWidth * dpi.DpiScaleX - 16) < .1 &&
                 Math.Abs(moveGrip.ActualHeight - compact.ActualHeight) < .1,
                 "Compact drag handle is 16 physical pixels wide and spans the full window height");
@@ -277,10 +328,13 @@ internal static class Program
             Check(viewOptions.Items.Cast<string>().SequenceEqual(["Large", "Compact"]),
                 "Settings exposes large and compact view options");
             viewOptions.SelectedItem = "Compact";
+            var snapOption = Descendants<CheckBox>(dialog).Single(c => Equals(c.Content, "Snap to screen edges"));
+            Check(snapOption.IsChecked == true, "Settings enables screen-edge snapping by default");
+            snapOption.IsChecked = false;
             var save = Descendants<Button>(dialog).Single(b => Equals(b.Content, "Save"));
             // ShowDialog is required for DialogResult; validate available settings controls without closing VS Code.
             Check(Equals(Descendants<ComboBox>(dialog).Single().SelectedItem, "Compact") && save.IsDefault,
-                "Settings offers view selection and save action");
+                "Settings offers view and screen-edge snapping selection with a save action");
             dialog.Close();
             Check(baseline.SetEquals(NativeWindows.Discover().Select(w => w.Handle)), "All pre-existing VS Code windows remain open and untouched");
             Console.WriteLine($"All {checks} Windows checks passed.");
@@ -301,7 +355,7 @@ internal static class Program
     }
 
     private static List<Button> TileButtons(Window window) =>
-        Descendants<Button>(window).Where(b => !double.IsNaN(b.Width)).ToList();
+        Descendants<Button>(window).Where(b => b.Content is TextBlock).ToList();
 
     private static int RunLoggingTests()
     {

@@ -22,6 +22,8 @@ There is no public network service and nothing is uploaded to external services.
   reorder it. **Compact** view hides these grips. Hotkeys follow
   positions, not projects. New windows are added in discovery order.
 - Drag the title grip to move the always-on-top panel.
+- When **Snap to screen edges** is enabled in Settings, moving the panel within
+  eight physical pixels of any monitor edge snaps it to that edge.
 - **Large** view uses 64 x 64 physical-pixel buttons and includes the title bar,
   settings, close button, and reorder grips. Use the ↙ title-bar button to
   switch to Compact view.

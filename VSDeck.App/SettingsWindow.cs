@@ -7,8 +7,10 @@ namespace VSDeck.App;
 public sealed class SettingsWindow : Window
 {
     private readonly ComboBox view;
+    private readonly CheckBox snapToScreenEdges;
     private readonly TextBox shortcuts;
     public int SelectedSize { get; private set; }
+    public bool SelectedSnapToScreenEdges { get; private set; }
     public string SelectedHotkeys { get; private set; } = "";
 
     public SettingsWindow(Settings settings)
@@ -24,6 +26,9 @@ public sealed class SettingsWindow : Window
         view = new ComboBox { ItemsSource = new[] { "Large", "Compact" },
             SelectedItem = settings.ButtonSize == 64 ? "Large" : "Compact", Margin = new(0, 6, 0, 16) };
         panel.Children.Add(view);
+        snapToScreenEdges = new CheckBox { Content = "Snap to screen edges",
+            IsChecked = settings.SnapToScreenEdges, Margin = new(0, 0, 0, 16) };
+        panel.Children.Add(snapToScreenEdges);
         panel.Children.Add(new TextBlock { Text = "Global hotkeys, in button-position order (comma separated)" });
         shortcuts = new TextBox { Text = settings.Hotkeys, TextWrapping = TextWrapping.Wrap,
             AcceptsReturn = false, MinHeight = 65, Margin = new(0, 6, 0, 8) };
@@ -47,6 +52,7 @@ public sealed class SettingsWindow : Window
             {
                 _ = Hotkey.ParseList(shortcuts.Text);
                 SelectedSize = Equals(view.SelectedItem, "Compact") ? 32 : 64;
+                SelectedSnapToScreenEdges = snapToScreenEdges.IsChecked == true;
                 SelectedHotkeys = shortcuts.Text.Trim();
                 DialogResult = true;
             }

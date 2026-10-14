@@ -27,6 +27,31 @@ internal static class NativeWindows
     [DllImport("user32.dll")] private static extern bool FlashWindowEx(ref FlashInfo info);
     [DllImport("user32.dll", SetLastError = true)] public static extern bool RegisterHotKey(nint hwnd, int id, uint modifiers, uint key);
     [DllImport("user32.dll")] public static extern bool UnregisterHotKey(nint hwnd, int id);
+    [DllImport("user32.dll", SetLastError = true)] private static extern bool GetWindowRect(nint hwnd, out PixelRect rect);
+    [DllImport("user32.dll")] private static extern nint MonitorFromWindow(nint hwnd, uint flags);
+    [DllImport("user32.dll", SetLastError = true)] private static extern bool GetMonitorInfo(nint monitor, ref MonitorInfo info);
+    [DllImport("user32.dll", SetLastError = true)] private static extern bool SetWindowPos(
+        nint hwnd, nint insertAfter, int x, int y, int width, int height, uint flags);
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct PixelRect(int left, int top, int right, int bottom)
+    {
+        public int Left = left;
+        public int Top = top;
+        public int Right = right;
+        public int Bottom = bottom;
+    }
+
+    internal readonly record struct PixelOffset(int X, int Y);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MonitorInfo
+    {
+        public uint Size;
+        public PixelRect Monitor;
+        public PixelRect Work;
+        public uint Flags;
+    }
 
     [StructLayout(LayoutKind.Sequential)]
     private struct FlashInfo
@@ -80,5 +105,41 @@ internal static class NativeWindows
             Window = hwnd, Flags = 3, Count = 3 };
         FlashWindowEx(ref flash);
         return "Windows denied foreground activation; the VS Code taskbar button has been flashed.";
+    }
+
+    internal static PixelOffset SnapToMonitorEdges(nint hwnd, int threshold)
+    {
+        var window = GetWindowBounds(hwnd);
+        var offset = CalculateSnapOffset(window, GetMonitorBounds(hwnd), threshold);
+        if (offset != default && !SetWindowPos(hwnd, 0, window.Left + offset.X, window.Top + offset.Y,
+            0, 0, 0x0001 | 0x0004 | 0x0010))
+            throw new Win32Exception(Marshal.GetLastWin32Error(), "Unable to snap VSDeck to the monitor edge.");
+        return offset;
+    }
+
+    internal static PixelRect GetWindowBounds(nint hwnd)
+    {
+        if (!GetWindowRect(hwnd, out var bounds))
+            throw new Win32Exception(Marshal.GetLastWin32Error(), "Unable to read the window bounds.");
+        return bounds;
+    }
+
+    internal static PixelRect GetMonitorBounds(nint hwnd)
+    {
+        var monitor = MonitorFromWindow(hwnd, 2);
+        if (monitor == 0) throw new Win32Exception("Unable to identify the monitor containing the window.");
+        var info = new MonitorInfo { Size = (uint)Marshal.SizeOf<MonitorInfo>() };
+        if (!GetMonitorInfo(monitor, ref info))
+            throw new Win32Exception(Marshal.GetLastWin32Error(), "Unable to read the monitor bounds.");
+        return info.Monitor;
+    }
+
+    internal static PixelOffset CalculateSnapOffset(PixelRect window, PixelRect monitor, int threshold)
+    {
+        var x = Math.Abs(window.Left - monitor.Left) <= threshold ? monitor.Left - window.Left :
+            Math.Abs(window.Right - monitor.Right) <= threshold ? monitor.Right - window.Right : 0;
+        var y = Math.Abs(window.Top - monitor.Top) <= threshold ? monitor.Top - window.Top :
+            Math.Abs(window.Bottom - monitor.Bottom) <= threshold ? monitor.Bottom - window.Bottom : 0;
+        return new PixelOffset(x, y);
     }
 }
