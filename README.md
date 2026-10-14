@@ -65,12 +65,18 @@ live sessions is idle; an unavailable source is unknown.
 
 ### Existing dev-container windows
 
-The five existing dev-container workspaces are configured in `RemoteSources` in
-the local settings file. VSC Deck uses the already-installed Docker and OpenSSH
-clients, your existing Docker context and SSH configuration, and the hosts' and
-containers' existing Python 3 interpreters. SSH is batch-only: no password or authentication
-dialog is opened. No extension, daemon, helper file, or package is installed in
-the containers. Only session files and process metadata are read.
+On first launch, VSC Deck discovers running dev containers that match open VS
+Code windows. It checks matching Docker contexts and concrete host aliases from
+your existing SSH configuration, then saves the discovered sources in
+`RemoteSources`. Settings also provides **Discover Docker/SSH sources** to add
+containers opened later. Existing entries are retained when discovery is
+refreshed.
+
+VSC Deck uses the already-installed Docker and OpenSSH clients, your existing
+Docker context and SSH configuration, and the hosts' and containers' existing
+Python 3 interpreters. SSH is batch-only: no password or authentication dialog
+is opened. No extension, daemon, helper file, or package is installed in the
+containers. Only container labels, session files, and process metadata are read.
 
 Containers are found by the `devcontainer.local_folder` label, not hard-coded
 container IDs, so a rebuilt container can be rediscovered. Remote window titles
@@ -90,7 +96,7 @@ connection still produces unknown status rather than stale success.
 Closing VSC Deck terminates only its own SSH clients, never VS Code's existing
 connections. SSH configuration and the VS Code-owned tunnel are not changed.
 
-Additional sources can be added to `RemoteSources` in
+Sources can also be added manually to `RemoteSources` in
 `%LOCALAPPDATA%\VSCDeck\settings.json` while VSC Deck is closed, then applied by
 restarting **only VSC Deck**. For example:
 

@@ -37,6 +37,38 @@ internal static class Program
             Check(new Settings().Hotkeys == string.Join(", ", "1234567890".Select(key => $"Ctrl+Shift+{key}")),
                 "Default shortcuts use Ctrl+Shift in left-to-right numeric order");
             Check(new Settings().SnapToScreenEdges, "Screen-edge snapping is enabled by default");
+            var sshConfig = Path.Combine(Path.GetTempPath(), "vscdeck-ssh-" + Guid.NewGuid() + ".config");
+            File.WriteAllText(sshConfig, "Host devbox backup\n  HostName example\nHost *.internal !blocked\n");
+            try
+            {
+                Check(RemoteSourceDiscovery.ReadSshHosts(sshConfig).SetEquals(["devbox", "backup"]),
+                    "SSH discovery accepts concrete aliases and excludes patterns");
+            }
+            finally { File.Delete(sshConfig); }
+            var discoveryWindow = new CodeWindow(0, 0,
+                "sample [Dev Container: Sample @ desktop-linux] - Visual Studio Code",
+                "sample [Dev Container: Sample @ desktop-linux]", null);
+            var containerJson = JsonSerializer.Serialize(new[]
+            {
+                new
+                {
+                    Config = new
+                    {
+                        User = "",
+                        Labels = new Dictionary<string, string>
+                        {
+                            ["devcontainer.local_folder"] = @"c:\work\sample",
+                            ["devcontainer.metadata"] = """[{"remoteUser":"vscode"}]"""
+                        }
+                    }
+                }
+            });
+            var parsedSources = RemoteSourceDiscovery.ParseContainers(
+                containerJson, "desktop-linux", null, [discoveryWindow]);
+            Check(parsedSources is [{ Project: "sample", Workspace: @"c:\work\sample",
+                    DockerContext: "desktop-linux", SshHost: null,
+                    SessionRoot: "/home/vscode/.copilot/session-state" }],
+                "Container labels produce a matching remote source and session root");
             var monitorBounds = new NativeWindows.PixelRect(-1920, -200, 0, 880);
             Check(NativeWindows.CalculateSnapOffset(
                 new NativeWindows.PixelRect(-1913, -192, -1513, 108), monitorBounds, 8) == new NativeWindows.PixelOffset(-7, -8),
@@ -58,7 +90,16 @@ internal static class Program
                 migrated.SnapToScreenEdges == saved.SnapToScreenEdges &&
                 migrated.Left == saved.Left && migrated.Top == saved.Top,
                 "Size migration preserves order, hotkeys, sources, snapping, and position");
-            var configured = AppStorage.Load().RemoteSources
+            var discovery = RemoteSourceDiscovery.Discover().GetAwaiter().GetResult();
+            foreach (var warning in discovery.Warnings) Console.WriteLine(warning);
+            var devContainerWindows = NativeWindows.Discover()
+                .Where(window => window.Project.Contains("[Dev Container:", StringComparison.OrdinalIgnoreCase)).ToList();
+            Check(discovery.Warnings.Count == 0 && discovery.Sources.Count == devContainerWindows.Count &&
+                discovery.Sources.All(source => devContainerWindows.Any(source.Matches)),
+                "Fresh discovery configures every open Docker/SSH dev-container window");
+            var configured = (args.Contains("--fresh-discovery")
+                    ? discovery.Sources
+                    : AppStorage.Load().RemoteSources)
                 .Where(s => !args.Contains("--local-only") || s.SshHost is null).ToList();
             if (configured.Count > 0)
             {
@@ -331,6 +372,8 @@ internal static class Program
             var snapOption = Descendants<CheckBox>(dialog).Single(c => Equals(c.Content, "Snap to screen edges"));
             Check(snapOption.IsChecked == true, "Settings enables screen-edge snapping by default");
             snapOption.IsChecked = false;
+            Check(Descendants<Button>(dialog).Any(b => Equals(b.Content, "Discover Docker/SSH sources")),
+                "Settings offers Docker and SSH source discovery");
             var save = Descendants<Button>(dialog).Single(b => Equals(b.Content, "Save"));
             // ShowDialog is required for DialogResult; validate available settings controls without closing VS Code.
             Check(Equals(Descendants<ComboBox>(dialog).Single().SelectedItem, "Compact") && save.IsDefault,

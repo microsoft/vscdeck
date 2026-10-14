@@ -17,7 +17,7 @@ public sealed class DeckWindow : Window
 {
     private const int SnapThresholdPixels = 8;
     private readonly Settings settings;
-    private readonly CopilotMonitor monitor;
+    private CopilotMonitor monitor;
     private readonly StackPanel buttons = new() { Orientation = Orientation.Horizontal };
     private readonly TextBlock notice = new() { Foreground = Brushes.Gold, FontSize = 10, Margin = new(6, 0, 6, 3), MaxWidth = 520 };
     private readonly DockPanel header;
@@ -72,7 +72,7 @@ public sealed class DeckWindow : Window
         DockPanel.SetDock(close, Dock.Right);
         header.Children.Add(close);
         var options = CreateCaptionButton("⚙", "Settings", CaptionButtonTemplate);
-        options.Click += (_, _) => OpenSettings();
+        options.Click += async (_, _) => await OpenSettings();
         DockPanel.SetDock(options, Dock.Right);
         header.Children.Add(options);
         var compact = CreateCaptionButton("↙", "Switch to compact view", CaptionButtonTemplate);
@@ -534,18 +534,27 @@ public sealed class DeckWindow : Window
         notice.ToolTip = string.Join("\n", all);
     }
 
-    private void OpenSettings()
+    private async Task OpenSettings()
     {
+        timer.Stop();
+        while (scanning) await Task.Delay(25);
         var dialog = new SettingsWindow(settings) { Owner = this };
-        if (dialog.ShowDialog() != true) return;
+        bool accepted;
+        try { accepted = dialog.ShowDialog() == true; }
+        finally { if (!closing) timer.Start(); }
+        if (!accepted) return;
         settings.ButtonSize = dialog.SelectedSize;
         settings.SnapToScreenEdges = dialog.SelectedSnapToScreenEdges;
         settings.Hotkeys = dialog.SelectedHotkeys;
+        settings.RemoteSources = dialog.SelectedRemoteSources;
         hotkeys = Hotkey.ParseList(settings.Hotkeys);
+        monitor.Dispose();
+        monitor = new CopilotMonitor(settings.RemoteSources);
         SaveSettings();
         BuildTiles();
         RegisterHotkeys();
         UpdateNotice([]);
+        await Refresh();
     }
 
     private void SwitchToLargeMode()

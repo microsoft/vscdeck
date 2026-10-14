@@ -29,10 +29,20 @@ public partial class App : Application
         };
         try
         {
-            MainWindow = new DeckWindow(AppStorage.Load());
+            var fresh = !File.Exists(AppStorage.SettingsPath);
+            var settings = AppStorage.Load();
+            if (fresh)
+            {
+                var discovery = Task.Run(RemoteSourceDiscovery.Discover).GetAwaiter().GetResult();
+                settings.RemoteSources = discovery.Sources.ToList();
+                foreach (var warning in discovery.Warnings) AppStorage.Log(warning);
+                AppStorage.Save(settings);
+            }
+            MainWindow = new DeckWindow(settings);
             MainWindow.Show();
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException or FormatException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException or
+            FormatException or System.ComponentModel.Win32Exception)
         {
             AppStorage.Log(ex.ToString());
             MessageBox.Show("Unable to load VSC Deck settings:\n" + ex.Message +

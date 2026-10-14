@@ -1,6 +1,4 @@
-using System.Diagnostics;
 using System.IO;
-using System.Text;
 using System.Text.Json;
 using VSCDeck.Core;
 
@@ -159,35 +157,7 @@ internal sealed class RemoteMonitor : IDisposable
         private async Task<string> Command(string[] command, string? input = null)
         {
             if (channel is not null) return await channel.Run(command, input);
-            var start = new ProcessStartInfo
-            {
-                FileName = command[0],
-                UseShellExecute = false, CreateNoWindow = true,
-                RedirectStandardOutput = true, RedirectStandardError = true, RedirectStandardInput = true,
-                StandardOutputEncoding = Encoding.UTF8, StandardErrorEncoding = Encoding.UTF8
-            };
-            foreach (var argument in command.Skip(1)) start.ArgumentList.Add(argument);
-            using var process = new Process { StartInfo = start };
-            process.Start();
-            var stdout = process.StandardOutput.ReadToEndAsync();
-            var stderr = process.StandardError.ReadToEndAsync();
-            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
-            try
-            {
-                if (input is not null) await process.StandardInput.WriteAsync(input.AsMemory(), timeout.Token);
-                process.StandardInput.Close();
-                await process.WaitForExitAsync(timeout.Token);
-            }
-            catch (OperationCanceledException)
-            {
-                if (!process.HasExited) process.Kill(entireProcessTree: true);
-                throw new IOException("Read-only Docker/SSH status command timed out.");
-            }
-            var result = await stdout;
-            var error = await stderr;
-            if (process.ExitCode != 0)
-                throw new IOException($"Docker/SSH exited {process.ExitCode}: {SessionTracker.Shorten(error, 240)}");
-            return result;
+            return await ProcessCommand.Run(command, input, TimeSpan.FromSeconds(60), "Docker/SSH status command");
         }
 
     }
