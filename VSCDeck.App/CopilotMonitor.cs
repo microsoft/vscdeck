@@ -71,11 +71,12 @@ internal sealed class CopilotMonitor : IDisposable
             }
         }
         ReadIdePaths(paths, livePaths, warnings);
-        var remote = remoteMonitor.Scan();
+        var discoveredWindows = NativeWindows.Discover();
+        var remote = remoteMonitor.Scan(discoveredWindows);
         sessions.AddRange(remote.Sessions);
         warnings.AddRange(remote.Warnings);
         foreach (var pair in remote.Errors) workspaceErrors[pair.Key] = pair.Value;
-        var windows = NativeWindows.Discover().Select(window =>
+        var windows = discoveredWindows.Select(window =>
         {
             var matchingRemote = remoteSources.Where(s => s.Matches(window)).ToArray();
             if (matchingRemote.Length == 1)

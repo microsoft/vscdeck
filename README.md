@@ -133,6 +133,12 @@ your existing SSH configuration, then saves the discovered sources in
 containers opened later. Existing entries are retained when discovery is
 refreshed.
 
+Saved sources are polled only while a matching VS Code window is open.
+Closing that window suspends further checks and removes its status warnings,
+without deleting the configuration. Monitoring resumes automatically when
+the window reopens. A check already in progress may finish after closure,
+but its result is discarded.
+
 VSC Deck uses the already-installed Docker and OpenSSH clients, your existing
 Docker context and SSH configuration, and the hosts' and containers' existing
 Python 3 interpreters. SSH is batch-only: no password or authentication dialog
@@ -200,6 +206,7 @@ dotnet build .\VSCDeck.App\VSCDeck.App.csproj -c Release
 dotnet run --project .\VSCDeck.Tests\VSCDeck.Tests.csproj -c Release
 dotnet run --project .\VSCDeck.WindowsTests\VSCDeck.WindowsTests.csproj -c Release
 dotnet run --project .\VSCDeck.WindowsTests\VSCDeck.WindowsTests.csproj -c Release -- --logging-only
+dotnet run --project .\VSCDeck.WindowsTests\VSCDeck.WindowsTests.csproj -c Release -- --remote-lifecycle-only
 dotnet run --project .\VSCDeck.WindowsTests\VSCDeck.WindowsTests.csproj -c Release -- --ssh-only devbox
 dotnet publish .\VSCDeck.App\VSCDeck.App.csproj -c Release -o .\artifacts\VSCDeck
 .\artifacts\VSCDeck\VSCDeck.exe
@@ -215,6 +222,9 @@ The focused logging checks reproduce the original concurrent-write race and
 verify serialized writes, compatible readers, exclusive locks, and recovery.
 The SSH checks use a configured host to verify connection reuse, parallel
 response isolation, command error recovery, and owned-client cleanup.
+The remote lifecycle checks verify that closed workspaces remain quiet and
+that reopening them resumes checks, using an intentionally nonexistent Docker
+context without requiring a running container or SSH host.
 
 ## Contributing, security, and license
 

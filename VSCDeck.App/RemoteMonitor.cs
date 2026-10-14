@@ -36,9 +36,6 @@ internal sealed class RemoteMonitor : IDisposable
     private readonly List<Reader> readers;
     private readonly Dictionary<string, SshCommandChannel> channels = new(StringComparer.OrdinalIgnoreCase);
     private bool disposed;
-    private DateTimeOffset nextPoll;
-    private Task<RemoteSnapshot[]>? poll;
-    private RemoteSnapshot cached = new([], [], [], [], []);
     public RemoteMonitor(IEnumerable<RemoteSource> sources)
     {
         readers = sources.Select(source =>
@@ -56,26 +53,16 @@ internal sealed class RemoteMonitor : IDisposable
         foreach (var channel in channels.Values) channel.Dispose();
     }
 
-    public RemoteSnapshot Scan()
+    public RemoteSnapshot Scan(IReadOnlyCollection<CodeWindow> windows)
     {
-        if (disposed || readers.Count == 0) return cached;
-        if (poll is { IsCompleted: true })
-        {
-            var completed = poll;
-            poll = null;
-            nextPoll = DateTimeOffset.UtcNow.AddSeconds(3);
-            cached = new([], [], [], [], []);
-            var results = completed.GetAwaiter().GetResult();
-            cached = new(results.SelectMany(r => r.Sessions).ToList(),
-                results.SelectMany(r => r.Errors).ToDictionary(p => p.Key, p => p.Value),
-                results.SelectMany(r => r.Warnings).ToList(),
-                results.SelectMany(r => r.Available).ToHashSet(StringComparer.OrdinalIgnoreCase),
-                results.SelectMany(r => r.DebuggingBackgrounds)
-                    .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.OrdinalIgnoreCase));
-        }
-        if (poll is null && DateTimeOffset.UtcNow >= nextPoll)
-            poll = Task.WhenAll(readers.Select(r => r.Scan()));
-        return cached;
+        if (disposed) return new([], [], [], [], []);
+        var results = readers.Select(reader => reader.Poll(windows)).ToArray();
+        return new(results.SelectMany(r => r.Sessions).ToList(),
+            results.SelectMany(r => r.Errors).ToDictionary(p => p.Key, p => p.Value),
+            results.SelectMany(r => r.Warnings).ToList(),
+            results.SelectMany(r => r.Available).ToHashSet(StringComparer.OrdinalIgnoreCase),
+            results.SelectMany(r => r.DebuggingBackgrounds)
+                .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.OrdinalIgnoreCase));
     }
 
     private sealed class Reader(RemoteSource source, SshCommandChannel? channel)
@@ -87,6 +74,42 @@ internal sealed class RemoteMonitor : IDisposable
         private string lastError = "";
         private string lastColorError = "";
         private string? debuggingBackground;
+        private bool active;
+        private DateTimeOffset nextPoll;
+        private Task<RemoteSnapshot>? poll;
+        private bool discardPoll;
+        private RemoteSnapshot cached = new([], [], [], [], []);
+
+        public RemoteSnapshot Poll(IReadOnlyCollection<CodeWindow> windows)
+        {
+            var matchingWindow = windows.Any(source.Matches);
+            if (!matchingWindow && poll is not null) discardPoll = true;
+            if (poll is { IsCompleted: true })
+            {
+                var completed = poll;
+                poll = null;
+                var result = completed.GetAwaiter().GetResult();
+                if (!discardPoll) cached = result;
+                nextPoll = discardPoll ? DateTimeOffset.MinValue :
+                    DateTimeOffset.UtcNow.AddSeconds(3);
+                discardPoll = false;
+            }
+            if (!matchingWindow)
+            {
+                active = false;
+                cached = new([], [], [], [], []);
+                return cached;
+            }
+            if (!active)
+            {
+                active = true;
+                nextPoll = DateTimeOffset.MinValue;
+                rediscoverAt = DateTimeOffset.MinValue;
+            }
+            if (poll is null && DateTimeOffset.UtcNow >= nextPoll)
+                poll = Scan();
+            return cached;
+        }
 
         public async Task<RemoteSnapshot> Scan()
         {

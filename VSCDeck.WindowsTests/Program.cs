@@ -30,6 +30,7 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
+        if (args.Contains("--remote-lifecycle-only")) return RunRemoteLifecycleTests();
         if (args.Contains("--logging-only")) return RunLoggingTests();
         if (args.Contains("--ssh-only")) return RunSshTests(args);
         var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
@@ -793,6 +794,52 @@ internal static class Program
             catch (ArgumentException) { exited = true; }
             Check(exited && channel.ConnectionProcessId is null, "Disposal closes only the SSH client owned by the test");
             Console.WriteLine($"All {checks} SSH checks passed.");
+            return 0;
+        }
+        catch (Exception ex) { Console.Error.WriteLine(ex); return 1; }
+    }
+
+    private static int RunRemoteLifecycleTests()
+    {
+        try
+        {
+            var source = new RemoteSource
+            {
+                Project = "vscdeck-lifecycle-test",
+                Workspace = @"C:\vscdeck-lifecycle-test",
+                DockerContext = "vscdeck-test-" + Guid.NewGuid().ToString("N")
+            };
+            var window = new CodeWindow(0, 0, "",
+                $"{source.Project} [Dev Container: Test @ {source.DockerContext}]", null);
+            using var monitor = new RemoteMonitor([source]);
+            var closed = monitor.Scan([]);
+            Check(closed.Warnings.Count == 0 && closed.Errors.Count == 0,
+                "Closed remote workspaces do not start checks or report warnings");
+            RemoteSnapshot WaitForError()
+            {
+                var timeout = Stopwatch.StartNew();
+                RemoteSnapshot snapshot;
+                do
+                {
+                    snapshot = monitor.Scan([window]);
+                    if (snapshot.Errors.Count > 0) return snapshot;
+                    Thread.Sleep(25);
+                } while (timeout.Elapsed < TimeSpan.FromSeconds(70));
+                throw new TimeoutException("Expected an explicit error from the nonexistent Docker context.");
+            }
+            var open = WaitForError();
+            Check(open.Errors.ContainsKey(source.Identity) && open.Warnings.Count > 0,
+                "Open remote workspaces still report genuine check failures");
+            closed = monitor.Scan([]);
+            Check(closed.Errors.Count == 0 && closed.Warnings.Count == 0 &&
+                closed.Sessions.Count == 0 && closed.Available.Count == 0 &&
+                closed.DebuggingBackgrounds.Count == 0,
+                "Closing a remote window removes all cached source state");
+            Check(monitor.Scan([window]).Errors.Count == 0,
+                "Reopening a remote window starts without stale errors");
+            Check(WaitForError().Errors.ContainsKey(source.Identity),
+                "Reopening a remote window automatically resumes checks");
+            Console.WriteLine($"All {checks} remote lifecycle checks passed.");
             return 0;
         }
         catch (Exception ex) { Console.Error.WriteLine(ex); return 1; }
