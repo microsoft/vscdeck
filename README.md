@@ -18,8 +18,9 @@ There is no public network service and nothing is uploaded to external services.
   button displays its position, state, and active-session count.
 - Click a button or press its global hotkey to bring its VS Code window forward.
   If that window is already foreground, the same action toggles maximize/restore.
-- Drag the **grip below a button** onto another button to reorder it. Hotkeys
-  follow positions, not projects. New windows are added in discovery order.
+- In 64 x 64 mode, drag the **grip below a button** onto another button to
+  reorder it. The compact 32 x 32 mode hides these grips. Hotkeys follow
+  positions, not projects. New windows are added in discovery order.
 - Drag the title grip to move the always-on-top panel.
 - **Settings** selects **32 x 32** or **64 x 64 physical-pixel** buttons and edits
   comma-separated, per-position hotkeys. Defaults are **Ctrl+Shift+1** through

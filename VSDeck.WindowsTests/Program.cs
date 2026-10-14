@@ -206,6 +206,8 @@ internal static class Program
             Check(compactButtons.All(b => b.Background is LinearGradientBrush &&
                 b.Template.FindName("GlassSheen", b) is Border),
                 "Compact buttons retain the same glass finish within their exact pixel bounds");
+            Check(compactButtons.All(b => VisualTreeHelper.GetParent(b) is StackPanel p &&
+                !p.Children.OfType<Border>().Any()), "Compact buttons omit reorder grips");
             if (settings.Order.Count > 0)
                 Check(System.Windows.Automation.AutomationProperties.GetName(compactButtons[0]) ==
                     System.Windows.Automation.AutomationProperties.GetName(tileButtons[0]), "Restart reconstructs reordered window positions");

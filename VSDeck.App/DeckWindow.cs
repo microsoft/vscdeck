@@ -218,21 +218,25 @@ public sealed class DeckWindow : Window
             System.Windows.Automation.AutomationProperties.SetName(tile.Button, tile.Window.Project);
             tile.Button.Click += (_, _) => Activate(tile.Window.Handle);
             column.Children.Add(tile.Button);
-            var grip = new Border { Background = new SolidColorBrush(Color.FromRgb(54, 60, 70)),
-                Margin = new(0, 2, 0, 0), Height = 15, Cursor = Cursors.SizeWE,
-                ToolTip = "Drag this grip to reorder. The hotkey follows the position.",
-                Child = new TextBlock { Text = "::::", FontSize = 10, Foreground = Brushes.LightGray,
-                    HorizontalAlignment = HorizontalAlignment.Center } };
-            Point start = default;
-            grip.MouseLeftButtonDown += (_, e) => { start = e.GetPosition(grip); };
-            grip.MouseMove += (_, e) =>
+            if (settings.ButtonSize == 64)
             {
-                if (e.LeftButton != MouseButtonState.Pressed) return;
-                var point = e.GetPosition(grip);
-                if (Math.Abs(point.X - start.X) < SystemParameters.MinimumHorizontalDragDistance &&
-                    Math.Abs(point.Y - start.Y) < SystemParameters.MinimumVerticalDragDistance) return;
-                DragDrop.DoDragDrop(grip, new DataObject("VSDeck.Tile", tile.Window.Handle.ToInt64()), DragDropEffects.Move);
-            };
+                var grip = new Border { Background = new SolidColorBrush(Color.FromRgb(54, 60, 70)),
+                    Margin = new(0, 2, 0, 0), Height = 15, Cursor = Cursors.SizeWE,
+                    ToolTip = "Drag this grip to reorder. The hotkey follows the position.",
+                    Child = new TextBlock { Text = "::::", FontSize = 10, Foreground = Brushes.LightGray,
+                        HorizontalAlignment = HorizontalAlignment.Center } };
+                Point start = default;
+                grip.MouseLeftButtonDown += (_, e) => { start = e.GetPosition(grip); };
+                grip.MouseMove += (_, e) =>
+                {
+                    if (e.LeftButton != MouseButtonState.Pressed) return;
+                    var point = e.GetPosition(grip);
+                    if (Math.Abs(point.X - start.X) < SystemParameters.MinimumHorizontalDragDistance &&
+                        Math.Abs(point.Y - start.Y) < SystemParameters.MinimumVerticalDragDistance) return;
+                    DragDrop.DoDragDrop(grip, new DataObject("VSDeck.Tile", tile.Window.Handle.ToInt64()), DragDropEffects.Move);
+                };
+                column.Children.Add(grip);
+            }
             column.DragOver += (_, e) =>
             {
                 e.Effects = e.Data.GetDataPresent("VSDeck.Tile") ? DragDropEffects.Move : DragDropEffects.None;
@@ -254,7 +258,6 @@ public sealed class DeckWindow : Window
                 PaintTiles();
                 e.Handled = true;
             };
-            column.Children.Add(grip);
             buttons.Children.Add(column);
         }
         PaintTiles();
