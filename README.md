@@ -49,7 +49,7 @@ button returns to Large view.
   workspace name, and state. At 32 pixels, the button displays its position,
   state, and active-session count.
 - A stripe below each button reflects an explicitly customized
-  `workbench.colorCustomizations.statusBar.debuggingBackground` from that
+  `workbench.colorCustomizations.statusBar.background` from that
   workspace's `.vscode/settings.json` (or `.code-workspace` file). The stripe
   has a one-physical-pixel gap below the button, then is two physical pixels
   high in Large view and one in Compact view. Workspaces without that

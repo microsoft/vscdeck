@@ -29,7 +29,7 @@ public sealed class RemoteSource
 }
 
 internal sealed record RemoteSnapshot(List<SessionStatus> Sessions, Dictionary<string, string> Errors,
-    List<string> Warnings, HashSet<string> Available, Dictionary<string, string> DebuggingBackgrounds);
+    List<string> Warnings, HashSet<string> Available, Dictionary<string, string> StatusBarBackgrounds);
 
 internal sealed class RemoteMonitor : IDisposable
 {
@@ -61,7 +61,7 @@ internal sealed class RemoteMonitor : IDisposable
             results.SelectMany(r => r.Errors).ToDictionary(p => p.Key, p => p.Value),
             results.SelectMany(r => r.Warnings).ToList(),
             results.SelectMany(r => r.Available).ToHashSet(StringComparer.OrdinalIgnoreCase),
-            results.SelectMany(r => r.DebuggingBackgrounds)
+            results.SelectMany(r => r.StatusBarBackgrounds)
                 .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.OrdinalIgnoreCase));
     }
 
@@ -73,7 +73,7 @@ internal sealed class RemoteMonitor : IDisposable
         private DateTimeOffset rediscoverAt;
         private string lastError = "";
         private string lastColorError = "";
-        private string? debuggingBackground;
+        private string? statusBarBackground;
         private bool active;
         private DateTimeOffset nextPoll;
         private Task<RemoteSnapshot>? poll;
@@ -195,7 +195,7 @@ internal sealed class RemoteMonitor : IDisposable
                     settings = await channel!.Run(["python3", "-c", WorkspaceSettingsScript,
                         source.Workspace]);
                 }
-                debuggingBackground = WorkspaceColorCustomization.Parse(settings);
+                statusBarBackground = WorkspaceColorCustomization.Parse(settings);
                 lastColorError = "";
                 return [];
             }
@@ -203,7 +203,7 @@ internal sealed class RemoteMonitor : IDisposable
                 FormatException or System.ComponentModel.Win32Exception or InvalidOperationException or
                 OperationCanceledException)
             {
-                debuggingBackground = null;
+                statusBarBackground = null;
                 var error = $"Workspace color for {source.Project}: {ex.Message}";
                 if (lastColorError != error) AppStorage.Log(error);
                 lastColorError = error;
@@ -211,9 +211,9 @@ internal sealed class RemoteMonitor : IDisposable
             }
         }
 
-        private Dictionary<string, string> Colors() => debuggingBackground is null
+        private Dictionary<string, string> Colors() => statusBarBackground is null
             ? []
-            : new(StringComparer.OrdinalIgnoreCase) { [source.Identity] = debuggingBackground };
+            : new(StringComparer.OrdinalIgnoreCase) { [source.Identity] = statusBarBackground };
 
         private string[] ContextArgs() => source.SshHost is null ? ["--context", source.DockerContext] : [];
 

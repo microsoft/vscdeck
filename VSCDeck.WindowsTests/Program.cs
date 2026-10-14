@@ -49,19 +49,24 @@ internal static class Program
                 {
                     // VS Code workspace settings support JSON with comments.
                     "workbench.colorCustomizations": {
-                        "statusBar.debuggingBackground": "#ffff33",
+                        "statusBar.background": "#ffff33",
+                        "statusBar.debuggingBackground": "#000000",
                     },
                 }
                 """) == "#FFFFFF33" &&
                 WorkspaceColorCustomization.Parse("""
                 { "settings": { "workbench.colorCustomizations": {
-                    "statusBar.debuggingBackground": "#1a2b"
+                    "statusBar.background": "#1a2b"
                 } } }
                 """) == "#BB11AA22",
                 "Workspace color parsing supports JSONC, folder settings, workspace settings, and VS Code RGBA colors");
             Check(WorkspaceColorCustomization.Parse("""{"editor.fontSize": 14}""") is null &&
                 DeckWindow.ColorStripeBrush(null) is SolidColorBrush { Color.A: 0 },
-                "A workspace without an explicit debugging color uses a transparent stripe");
+                "A workspace without an explicit status bar color uses a transparent stripe");
+            Check(WorkspaceColorCustomization.Parse("""
+                {"workbench.colorCustomizations":{"statusBar.debuggingBackground":"#ffff33"}}
+                """) is null,
+                "A debugging-only customization does not produce a status bar stripe");
             Check(CopilotMonitor.AvailableWorkspaces(
                     [@"c:\work\local"], ["docker:devbox:/work/remote"])
                 .SetEquals([@"C:\WORK\LOCAL", "docker:devbox:/work/remote"]),
@@ -170,8 +175,8 @@ internal static class Program
                 var juno39 = configured.FirstOrDefault(source =>
                     source.Workspace.Contains("juno39_mcma", StringComparison.OrdinalIgnoreCase));
                 if (juno39 is not null)
-                    Check(remote.Windows.Single(juno39.Matches).DebuggingBackground == "#FFFFFF33",
-                        "Juno 39 resolves its yellow debugging status-bar customization");
+                    Check(remote.Windows.Single(juno39.Matches).StatusBarBackground == "#FFFFFF33",
+                        "Juno 39 resolves its yellow status-bar customization");
                 foreach (var source in configured)
                 {
                     var status = WindowStatus.Aggregate(remote.Sessions.Where(s => s.Workspace == source.Identity), sourceAvailable: true);
@@ -608,7 +613,7 @@ internal static class Program
             Check(compactButtons.All(b => VisualTreeHelper.GetParent(b) is StackPanel p &&
                 p.Children.OfType<Border>().All(border =>
                     System.Windows.Automation.AutomationProperties.GetName(border) ==
-                    "Workspace debugging color stripe")), "Compact buttons omit reorder grips");
+                    "Workspace status bar color stripe")), "Compact buttons omit reorder grips");
             Check(Descendants<TextBlock>(compact).Where(t => t.Text == "VSC Deck  ::")
                     .All(t => !t.IsVisible) &&
                 Descendants<Button>(compact).Where(b =>
@@ -833,7 +838,7 @@ internal static class Program
             closed = monitor.Scan([]);
             Check(closed.Errors.Count == 0 && closed.Warnings.Count == 0 &&
                 closed.Sessions.Count == 0 && closed.Available.Count == 0 &&
-                closed.DebuggingBackgrounds.Count == 0,
+                closed.StatusBarBackgrounds.Count == 0,
                 "Closing a remote window removes all cached source state");
             Check(monitor.Scan([window]).Errors.Count == 0,
                 "Reopening a remote window starts without stale errors");
@@ -858,7 +863,7 @@ internal static class Program
     private static Border ColorStripe(Button button) =>
         ((StackPanel)VisualTreeHelper.GetParent(button)).Children.OfType<Border>().Single(border =>
             System.Windows.Automation.AutomationProperties.GetName(border) ==
-            "Workspace debugging color stripe");
+            "Workspace status bar color stripe");
 
     private static Border FocusMarker(Button button) =>
         (Border)button.Template.FindName("FocusMarker", button);
@@ -866,7 +871,7 @@ internal static class Program
     private static Border ReorderGrip(Button button) =>
         ((StackPanel)VisualTreeHelper.GetParent(button)).Children.OfType<Border>().Single(border =>
             System.Windows.Automation.AutomationProperties.GetName(border) !=
-            "Workspace debugging color stripe");
+            "Workspace status bar color stripe");
 
     private static void PumpUntil(Func<bool> condition, int timeout = 4000)
     {

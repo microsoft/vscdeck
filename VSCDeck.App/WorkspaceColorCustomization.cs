@@ -38,11 +38,11 @@ internal static class WorkspaceColorCustomization
             return null;
         if (customizations.ValueKind != JsonValueKind.Object)
             throw new JsonException("workbench.colorCustomizations must be a JSON object.");
-        if (!customizations.TryGetProperty("statusBar.debuggingBackground", out var color) ||
+        if (!customizations.TryGetProperty("statusBar.background", out var color) ||
             color.ValueKind == JsonValueKind.Null)
             return null;
         if (color.ValueKind != JsonValueKind.String || color.GetString() is not { } value)
-            throw new JsonException("statusBar.debuggingBackground must be a color string.");
+            throw new JsonException("statusBar.background must be a color string.");
         return Normalize(value);
     }
 
@@ -55,10 +55,10 @@ internal static class WorkspaceColorCustomization
     private static string Normalize(string value)
     {
         if (!value.StartsWith('#'))
-            throw new FormatException("statusBar.debuggingBackground must use a hexadecimal VS Code color.");
+            throw new FormatException("statusBar.background must use a hexadecimal VS Code color.");
         var hex = value[1..];
         if (hex.Any(character => !Uri.IsHexDigit(character)))
-            throw new FormatException("statusBar.debuggingBackground contains a non-hexadecimal character.");
+            throw new FormatException("statusBar.background contains a non-hexadecimal character.");
         string red;
         string green;
         string blue;
@@ -91,7 +91,7 @@ internal static class WorkspaceColorCustomization
                 break;
             default:
                 throw new FormatException(
-                    "statusBar.debuggingBackground must use #RGB, #RGBA, #RRGGBB, or #RRGGBBAA.");
+                    "statusBar.background must use #RGB, #RGBA, #RRGGBB, or #RRGGBBAA.");
         }
         return ("#" + alpha + red + green + blue).ToUpperInvariant();
     }

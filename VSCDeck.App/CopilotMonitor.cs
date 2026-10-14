@@ -82,8 +82,8 @@ internal sealed class CopilotMonitor : IDisposable
             if (matchingRemote.Length == 1)
             {
                 var identity = matchingRemote[0].Identity;
-                remote.DebuggingBackgrounds.TryGetValue(identity, out var remoteDebuggingBackground);
-                return window with { Workspace = identity, DebuggingBackground = remoteDebuggingBackground };
+                remote.StatusBarBackgrounds.TryGetValue(identity, out var remoteStatusBarBackground);
+                return window with { Workspace = identity, StatusBarBackground = remoteStatusBarBackground };
             }
             if (matchingRemote.Length > 1)
             {
@@ -96,10 +96,10 @@ internal sealed class CopilotMonitor : IDisposable
                 candidates.Length == 1 ? candidates[0] : null;
             if (selected is null && candidates.Length > 1)
                 warnings.Add($"Ambiguous workspace for {window.Project}; status is unknown.");
-            string? debuggingBackground = null;
+            string? statusBarBackground = null;
             if (selected is not null)
             {
-                try { debuggingBackground = WorkspaceColorCustomization.ReadLocal(selected); }
+                try { statusBarBackground = WorkspaceColorCustomization.ReadLocal(selected); }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or
                     FormatException)
                 {
@@ -108,7 +108,7 @@ internal sealed class CopilotMonitor : IDisposable
                     LogOnce(warning);
                 }
             }
-            return window with { Workspace = selected, DebuggingBackground = debuggingBackground };
+            return window with { Workspace = selected, StatusBarBackground = statusBarBackground };
         }).ToList();
         return new(windows, sessions, workspaceErrors, warnings,
             AvailableWorkspaces(livePaths, remote.Available));

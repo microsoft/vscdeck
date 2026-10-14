@@ -254,7 +254,7 @@ public sealed class DeckWindow : Window
                 {
                     Position = index + 1, Handle = t.Window.Handle.ToInt64(), t.Window.ProcessId,
                     t.Window.Project, t.Window.Workspace, Identity = t.Window.Identity,
-                    t.Window.DebuggingBackground,
+                    t.Window.StatusBarBackground,
                     Activity = t.Status.Activity.ToString(),
                     t.CompletionPending,
                     Hotkey = index < hotkeys.Count ? hotkeys[index].Label : "Unassigned",
@@ -321,7 +321,7 @@ public sealed class DeckWindow : Window
                 IsHitTestVisible = false
             };
             System.Windows.Automation.AutomationProperties.SetName(tile.ColorStripe,
-                "Workspace debugging color stripe");
+                "Workspace status bar color stripe");
             column.Children.Add(tile.ColorStripe);
             if (settings.ButtonSize == 64)
             {
@@ -453,8 +453,8 @@ public sealed class DeckWindow : Window
         return index;
     }
 
-    internal static Brush ColorStripeBrush(string? debuggingBackground) =>
-        debuggingBackground is { } value
+    internal static Brush ColorStripeBrush(string? statusBarBackground) =>
+        statusBarBackground is { } value
             ? new SolidColorBrush(WorkspaceColorCustomization.ToColor(value))
             : Brushes.Transparent;
 
@@ -478,7 +478,7 @@ public sealed class DeckWindow : Window
             SetQuestionBlip(tile.Button, tile.Status.Activity == Activity.Question);
             SetFocusMarker(tile.Button, tile.Window.Handle == foreground, settings.ButtonSize, dpi);
             if (tile.ColorStripe is not null)
-                tile.ColorStripe.Background = ColorStripeBrush(tile.Window.DebuggingBackground);
+                tile.ColorStripe.Background = ColorStripeBrush(tile.Window.StatusBarBackground);
             tile.Label.Foreground = Brushes.White;
             var active = tile.Status.Sessions.Where(s => s.Activity is Activity.Running or Activity.Question).ToArray();
             var stateText = GetStateText(tile.Status.Activity, settings.ButtonSize == 32,

@@ -10,7 +10,7 @@ namespace VSCDeck.App;
 public sealed record CodeWindow(nint Handle, int ProcessId, string Title, string Project, string? Workspace)
 {
     public string Identity => Workspace ?? "title:" + Project.ToLowerInvariant();
-    public string? DebuggingBackground { get; init; }
+    public string? StatusBarBackground { get; init; }
 }
 
 internal static class NativeWindows
