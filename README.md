@@ -18,12 +18,18 @@ There is no public network service and nothing is uploaded to external services.
   button displays its position, state, and active-session count.
 - Click a button or press its global hotkey to bring its VS Code window forward.
   If that window is already foreground, the same action toggles maximize/restore.
-- In 64 x 64 mode, drag the **grip below a button** onto another button to
-  reorder it. The compact 32 x 32 mode hides these grips. Hotkeys follow
+- In **Large** view, drag the **grip below a button** onto another button to
+  reorder it. **Compact** view hides these grips. Hotkeys follow
   positions, not projects. New windows are added in discovery order.
 - Drag the title grip to move the always-on-top panel.
-- **Settings** selects **32 x 32** or **64 x 64 physical-pixel** buttons and edits
-  comma-separated, per-position hotkeys. Defaults are **Ctrl+Shift+1** through
+- **Large** view uses 64 x 64 physical-pixel buttons and includes the title bar,
+  settings, close button, and reorder grips. Use the ↙ title-bar button to
+  switch to Compact view.
+- **Compact** view uses 32 x 32 physical-pixel buttons without a title bar. Use
+  the expand button to return to Large view, or drag the 16-pixel strip at the
+  right edge to move the panel.
+- **Settings** selects **Large** or **Compact** view and edits comma-separated,
+  per-position hotkeys. Defaults are **Ctrl+Shift+1** through
   **Ctrl+Shift+9**, followed by **Ctrl+Shift+0**. Conflicts are displayed, not silently
   ignored. Add more shortcuts if there are more than ten windows.
 - **X** closes only VSDeck. It does not affect any VS Code process.

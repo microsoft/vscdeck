@@ -6,7 +6,7 @@ namespace VSDeck.App;
 
 public sealed class SettingsWindow : Window
 {
-    private readonly ComboBox size;
+    private readonly ComboBox view;
     private readonly TextBox shortcuts;
     public int SelectedSize { get; private set; }
     public string SelectedHotkeys { get; private set; } = "";
@@ -20,9 +20,10 @@ public sealed class SettingsWindow : Window
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         Topmost = true;
         var panel = new StackPanel { Margin = new(16) };
-        panel.Children.Add(new TextBlock { Text = "Button size (physical pixels)" });
-        size = new ComboBox { ItemsSource = new[] { 32, 64 }, SelectedItem = settings.ButtonSize, Margin = new(0, 6, 0, 16) };
-        panel.Children.Add(size);
+        panel.Children.Add(new TextBlock { Text = "View" });
+        view = new ComboBox { ItemsSource = new[] { "Large", "Compact" },
+            SelectedItem = settings.ButtonSize == 64 ? "Large" : "Compact", Margin = new(0, 6, 0, 16) };
+        panel.Children.Add(view);
         panel.Children.Add(new TextBlock { Text = "Global hotkeys, in button-position order (comma separated)" });
         shortcuts = new TextBox { Text = settings.Hotkeys, TextWrapping = TextWrapping.Wrap,
             AcceptsReturn = false, MinHeight = 65, Margin = new(0, 6, 0, 8) };
@@ -45,7 +46,7 @@ public sealed class SettingsWindow : Window
             try
             {
                 _ = Hotkey.ParseList(shortcuts.Text);
-                SelectedSize = (int)size.SelectedItem;
+                SelectedSize = Equals(view.SelectedItem, "Compact") ? 32 : 64;
                 SelectedHotkeys = shortcuts.Text.Trim();
                 DialogResult = true;
             }

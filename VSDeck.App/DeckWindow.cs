@@ -19,6 +19,10 @@ public sealed class DeckWindow : Window
     private readonly CopilotMonitor monitor;
     private readonly StackPanel buttons = new() { Orientation = Orientation.Horizontal };
     private readonly TextBlock notice = new() { Foreground = Brushes.Gold, FontSize = 10, Margin = new(6, 0, 6, 3), MaxWidth = 520 };
+    private readonly DockPanel header;
+    private readonly ScrollViewer scroll;
+    private readonly Button compactModeToggle;
+    private readonly Border compactDragHandle;
     private readonly DispatcherTimer timer = new() { Interval = TimeSpan.FromMilliseconds(750) };
     private readonly List<Tile> tiles = [];
     private readonly List<int> registered = [];
@@ -50,18 +54,29 @@ public sealed class DeckWindow : Window
         Left = settings.Left ?? Math.Max(12, SystemParameters.PrimaryScreenWidth - 360);
         Top = settings.Top ?? 24;
 
-        var root = new StackPanel();
-        var header = new DockPanel { Background = new SolidColorBrush(Color.FromRgb(40, 45, 55)) };
-        var close = new Button { Content = "X", ToolTip = "Close VSDeck (does not close VS Code)" };
+        var root = new Grid();
+        root.ColumnDefinitions.Add(new ColumnDefinition());
+        root.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        root.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        header = new DockPanel { Background = new SolidColorBrush(Color.FromRgb(40, 45, 55)) };
+        var close = new Button { Content = "X" };
         close.Click += (_, _) => Close();
         DockPanel.SetDock(close, Dock.Right);
         header.Children.Add(close);
-        var options = new Button { Content = "Settings", ToolTip = "Button size and global hotkeys" };
+        var options = new Button { Content = "Settings" };
         options.Click += (_, _) => OpenSettings();
         DockPanel.SetDock(options, Dock.Right);
         header.Children.Add(options);
+        var compact = new Button { Content = "↙" };
+        System.Windows.Automation.AutomationProperties.SetName(compact, "Switch to compact view");
+        compact.Click += (_, _) => SwitchToCompactMode();
+        DockPanel.SetDock(compact, Dock.Right);
+        header.Children.Add(compact);
         var caption = new TextBlock { Text = "VSDeck  ::", FontSize = 12, Margin = new(8, 5, 16, 5),
-            Cursor = Cursors.SizeAll, ToolTip = "Drag to move the panel. Green: idle. Blue: running. Flashing yellow: question. Gray: unknown." };
+            Cursor = Cursors.SizeAll };
         caption.MouseLeftButtonDown += (_, args) =>
         {
             if (args.ClickCount != 1) return;
@@ -69,12 +84,46 @@ public sealed class DeckWindow : Window
             SavePosition();
         };
         header.Children.Add(caption);
+        Grid.SetColumnSpan(header, 3);
         root.Children.Add(header);
-        var scroll = new ScrollViewer { Content = buttons, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+        scroll = new ScrollViewer { Content = buttons, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
             VerticalScrollBarVisibility = ScrollBarVisibility.Disabled, Margin = new(3) };
+        Grid.SetRow(scroll, 1);
         root.Children.Add(scroll);
+        compactModeToggle = new Button { Content = "↗", Padding = new(0), Margin = new(0, 3, 0, 3),
+            VerticalAlignment = VerticalAlignment.Stretch };
+        System.Windows.Automation.AutomationProperties.SetName(compactModeToggle, "Switch to large view");
+        compactModeToggle.Click += (_, _) => SwitchToLargeMode();
+        Grid.SetRow(compactModeToggle, 1);
+        Grid.SetColumn(compactModeToggle, 1);
+        root.Children.Add(compactModeToggle);
+        compactDragHandle = new Border
+        {
+            Background = new SolidColorBrush(Color.FromRgb(54, 60, 70)),
+            Cursor = Cursors.SizeAll,
+            Child = new TextBlock
+            {
+                Text = "⋮",
+                Foreground = Brushes.LightGray,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            }
+        };
+        System.Windows.Automation.AutomationProperties.SetName(compactDragHandle, "Move compact view");
+        compactDragHandle.MouseLeftButtonDown += (_, args) =>
+        {
+            if (args.ClickCount != 1) return;
+            DragMove();
+            SavePosition();
+        };
+        Grid.SetColumn(compactDragHandle, 2);
+        Grid.SetRowSpan(compactDragHandle, 3);
+        root.Children.Add(compactDragHandle);
+        Grid.SetRow(notice, 2);
+        Grid.SetColumnSpan(notice, 2);
         root.Children.Add(notice);
         Content = root;
+        UpdateViewMode();
         SourceInitialized += (_, _) =>
         {
             source = HwndSource.FromHwnd(new WindowInteropHelper(this).Handle);
@@ -86,7 +135,7 @@ public sealed class DeckWindow : Window
             timer.Start();
             await Refresh();
         };
-        DpiChanged += (_, _) => { BuildTiles(); ClampPosition(); };
+        DpiChanged += (_, _) => { UpdateViewMode(); BuildTiles(); ClampPosition(); };
         timer.Tick += async (_, _) =>
         {
             blink = !blink;
@@ -189,6 +238,7 @@ public sealed class DeckWindow : Window
 
     private void BuildTiles()
     {
+        UpdateViewMode();
         buttons.Children.Clear();
         if (tiles.Count == 0)
         {
@@ -222,7 +272,6 @@ public sealed class DeckWindow : Window
             {
                 var grip = new Border { Background = new SolidColorBrush(Color.FromRgb(54, 60, 70)),
                     Margin = new(0, 2, 0, 0), Height = 15, Cursor = Cursors.SizeWE,
-                    ToolTip = "Drag this grip to reorder. The hotkey follows the position.",
                     Child = new TextBlock { Text = "::::", FontSize = 10, Foreground = Brushes.LightGray,
                         HorizontalAlignment = HorizontalAlignment.Center } };
                 Point start = default;
@@ -449,6 +498,34 @@ public sealed class DeckWindow : Window
         BuildTiles();
         RegisterHotkeys();
         UpdateNotice([]);
+    }
+
+    private void SwitchToLargeMode()
+    {
+        settings.ButtonSize = 64;
+        SaveSettings();
+        BuildTiles();
+        ClampPosition();
+    }
+
+    private void SwitchToCompactMode()
+    {
+        settings.ButtonSize = 32;
+        SaveSettings();
+        BuildTiles();
+        ClampPosition();
+    }
+
+    private void UpdateViewMode()
+    {
+        var compact = settings.ButtonSize == 32;
+        header.Visibility = compact ? Visibility.Collapsed : Visibility.Visible;
+        compactModeToggle.Visibility = compact ? Visibility.Visible : Visibility.Collapsed;
+        compactDragHandle.Visibility = compact ? Visibility.Visible : Visibility.Collapsed;
+        scroll.Margin = compact ? new Thickness(3, 3, 0, 3) : new Thickness(3);
+        var dpi = VisualTreeHelper.GetDpi(this);
+        compactModeToggle.MinWidth = 32 / dpi.DpiScaleX;
+        compactDragHandle.Width = 16 / dpi.DpiScaleX;
     }
 
     private void ClampPosition()

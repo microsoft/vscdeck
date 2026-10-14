@@ -103,6 +103,19 @@ internal static class Program
             Check(deck.Left + deck.ActualWidth <= SystemParameters.VirtualScreenLeft + SystemParameters.VirtualScreenWidth,
                 "Panel remains on screen after expanding to discovered windows");
             var dpi = VisualTreeHelper.GetDpi(deck);
+            var compactToggle = Descendants<Button>(deck).Single(b => Equals(b.Content, "↙"));
+            var settingsButton = Descendants<Button>(deck).Single(b => Equals(b.Content, "Settings"));
+            Check(compactToggle.IsVisible && compactToggle.PointToScreen(new Point()).X <
+                settingsButton.PointToScreen(new Point()).X,
+                "Large view shows the compact toggle to the left of Settings");
+            Check(new FrameworkElement[]
+                {
+                    compactToggle,
+                    settingsButton,
+                    Descendants<Button>(deck).Single(b => Equals(b.Content, "X")),
+                    Descendants<TextBlock>(deck).Single(t => t.Text == "VSDeck  ::")
+                }.All(element => element.ToolTip is null),
+                "Large title-bar controls have no tooltips");
             Check(tileButtons.All(b => Math.Abs(b.ActualWidth * dpi.DpiScaleX - 64) < .1 &&
                 Math.Abs(b.ActualHeight * dpi.DpiScaleY - 64) < .1), "All large buttons are exactly 64 x 64 physical pixels");
             Check(tileButtons.Any(b => ((TextBlock)b.Content).Text.Contains("Running")), "Real live agent session displays Running");
@@ -121,6 +134,9 @@ internal static class Program
             }
             finally { SetCursorPos(hoverCursor.X, hoverCursor.Y); }
             Check(tileButtons.All(b => VisualTreeHelper.GetParent(b) is StackPanel p && p.Children.OfType<Border>().Any()), "Each button has a separate draggable grip");
+            Check(tileButtons.Select(b => (StackPanel)VisualTreeHelper.GetParent(b))
+                .SelectMany(p => p.Children.OfType<Border>()).All(grip => grip.ToolTip is null),
+                "Large reorder grips have no tooltips");
 
             using (var lockedLog = new FileStream(AppStorage.LogPath, FileMode.OpenOrCreate,
                 FileAccess.ReadWrite, FileShare.None))
@@ -194,8 +210,9 @@ internal static class Program
             if (args.Length > 0) Screenshot(deck, Path.Combine(args[0], "panel-64.png"));
             deck.Close();
 
-            var compact = new DeckWindow(new Settings { ButtonSize = 32, Left = 200, Top = 180, Order = settings.Order,
-                RemoteSources = configured });
+            var compactSettings = new Settings { ButtonSize = 32, Left = 200, Top = 180, Order = settings.Order,
+                RemoteSources = configured };
+            var compact = new DeckWindow(compactSettings);
             testWindows.Add(compact);
             compact.Show();
             PumpUntil(() => TileButtons(compact).Count > 0, 30000);
@@ -208,10 +225,34 @@ internal static class Program
                 "Compact buttons retain the same glass finish within their exact pixel bounds");
             Check(compactButtons.All(b => VisualTreeHelper.GetParent(b) is StackPanel p &&
                 !p.Children.OfType<Border>().Any()), "Compact buttons omit reorder grips");
+            Check(Descendants<TextBlock>(compact).Where(t => t.Text == "VSDeck  ::")
+                    .All(t => !t.IsVisible) &&
+                Descendants<Button>(compact).Where(b => Equals(b.Content, "Settings") || Equals(b.Content, "X"))
+                    .All(b => !b.IsVisible),
+                "Compact view hides the title bar, settings button, and close button");
+            var largeToggle = Descendants<Button>(compact).Single(b => Equals(b.Content, "↗"));
+            var moveGrip = Descendants<Border>(compact).Single(b =>
+                System.Windows.Automation.AutomationProperties.GetName(b) == "Move compact view");
+            Check(largeToggle.ToolTip is null && moveGrip.ToolTip is null,
+                "Compact toggle and drag handle have no tooltips");
+            Check(Math.Abs(moveGrip.ActualWidth * dpi.DpiScaleX - 16) < .1 &&
+                Math.Abs(moveGrip.ActualHeight - compact.ActualHeight) < .1,
+                "Compact drag handle is 16 physical pixels wide and spans the full window height");
             if (settings.Order.Count > 0)
                 Check(System.Windows.Automation.AutomationProperties.GetName(compactButtons[0]) ==
                     System.Windows.Automation.AutomationProperties.GetName(tileButtons[0]), "Restart reconstructs reordered window positions");
             if (args.Length > 0) Screenshot(compact, Path.Combine(args[0], "panel-32.png"));
+            largeToggle.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            PumpUntil(() => compactSettings.ButtonSize == 64 && TileButtons(compact).All(b =>
+                Math.Abs(b.ActualWidth * dpi.DpiScaleX - 64) < .1));
+            Check(Descendants<TextBlock>(compact).Any(t => t.Text == "VSDeck  ::"),
+                "Compact expand button switches to large view");
+            Descendants<Button>(compact).Single(b => Equals(b.Content, "↙"))
+                .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            PumpUntil(() => compactSettings.ButtonSize == 32 && TileButtons(compact).All(b =>
+                Math.Abs(b.ActualWidth * dpi.DpiScaleX - 32) < .1));
+            Check(!Descendants<TextBlock>(compact).Single(t => t.Text == "VSDeck  ::").IsVisible,
+                "Large compact button switches back to compact view");
             compact.Close();
 
             Check(NativeWindows.RegisterHotKey(handle, 901, 6 | 0x4000, 49), "Isolated Ctrl+Shift conflict hotkey registered");
@@ -232,13 +273,14 @@ internal static class Program
             var dialog = new SettingsWindow(new Settings { ButtonSize = 64 });
             testWindows.Add(dialog);
             dialog.Show();
-            var sizeOptions = Descendants<ComboBox>(dialog).Single();
-            Check(sizeOptions.Items.Cast<int>().SequenceEqual([32, 64]), "Settings exposes only 32 and 64 pixel options");
-            sizeOptions.SelectedItem = 32;
+            var viewOptions = Descendants<ComboBox>(dialog).Single();
+            Check(viewOptions.Items.Cast<string>().SequenceEqual(["Large", "Compact"]),
+                "Settings exposes large and compact view options");
+            viewOptions.SelectedItem = "Compact";
             var save = Descendants<Button>(dialog).Single(b => Equals(b.Content, "Save"));
             // ShowDialog is required for DialogResult; validate available settings controls without closing VS Code.
-            Check(Descendants<ComboBox>(dialog).Single().SelectedItem is 32 && save.IsDefault,
-                "Settings offers 32 / 64 selection and save action");
+            Check(Equals(Descendants<ComboBox>(dialog).Single().SelectedItem, "Compact") && save.IsDefault,
+                "Settings offers view selection and save action");
             dialog.Close();
             Check(baseline.SetEquals(NativeWindows.Discover().Select(w => w.Handle)), "All pre-existing VS Code windows remain open and untouched");
             Console.WriteLine($"All {checks} Windows checks passed.");
