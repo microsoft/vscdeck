@@ -19,8 +19,9 @@ public sealed class DeckWindow : Window
 {
     private const int SnapThresholdPixels = 8;
     internal const int RunningPulseCycleMilliseconds = 1200;
-    internal const int AttentionBlipOnMilliseconds = 50;
-    internal const int AttentionBlipCycleMilliseconds = 1500;
+    internal const int BlipOnMilliseconds = 50;
+    internal const int CompletionBlipCycleMilliseconds = 2000;
+    internal const int QuestionBlipCycleMilliseconds = 1500;
     internal static Color IdleLampColor { get; } = Color.FromRgb(12, 68, 34);
     internal static Color RunningLampColor { get; } = Color.FromRgb(16, 55, 126);
     internal static Color QuestionLampColor { get; } = Color.FromRgb(75, 52, 5);
@@ -182,7 +183,7 @@ public sealed class DeckWindow : Window
         }
         if (message == 0x312 && hotkeyTargets.TryGetValue((int)wParam, out var target))
         {
-            Activate(target);
+            _ = Activate(target);
             handled = true;
         }
         return 0;
@@ -292,7 +293,7 @@ public sealed class DeckWindow : Window
                 VerticalContentAlignment = VerticalAlignment.Center
             };
             System.Windows.Automation.AutomationProperties.SetName(tile.Button, tile.Window.Project);
-            tile.Button.Click += (_, _) => Activate(tile.Window.Handle);
+            tile.Button.Click += async (_, _) => await Activate(tile.Window.Handle);
             column.Children.Add(tile.Button);
             if (settings.ButtonSize == 64)
             {
@@ -633,12 +634,13 @@ public sealed class DeckWindow : Window
         };
 
     internal static void SetCompletionBlip(Button button, bool enabled)
-        => SetAttentionBlip(button, "CompletionGlow", enabled);
+        => SetAttentionBlip(button, "CompletionGlow", enabled, CompletionBlipCycleMilliseconds);
 
     internal static void SetQuestionBlip(Button button, bool enabled)
-        => SetAttentionBlip(button, "QuestionGlow", enabled);
+        => SetAttentionBlip(button, "QuestionGlow", enabled, QuestionBlipCycleMilliseconds);
 
-    private static void SetAttentionBlip(Button button, string elementName, bool enabled)
+    private static void SetAttentionBlip(Button button, string elementName, bool enabled,
+        int cycleMilliseconds)
     {
         button.ApplyTemplate();
         if (button.Template.FindName(elementName, button) is not Border glow) return;
@@ -651,14 +653,14 @@ public sealed class DeckWindow : Window
         }
         var blip = new DoubleAnimationUsingKeyFrames
         {
-            Duration = TimeSpan.FromMilliseconds(AttentionBlipCycleMilliseconds),
+            Duration = TimeSpan.FromMilliseconds(cycleMilliseconds),
             RepeatBehavior = RepeatBehavior.Forever
         };
         blip.KeyFrames.Add(new DiscreteDoubleKeyFrame(.95, KeyTime.FromTimeSpan(TimeSpan.Zero)));
         blip.KeyFrames.Add(new DiscreteDoubleKeyFrame(0,
-            KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(AttentionBlipOnMilliseconds))));
+            KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(BlipOnMilliseconds))));
         blip.KeyFrames.Add(new DiscreteDoubleKeyFrame(0,
-            KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(AttentionBlipCycleMilliseconds))));
+            KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(cycleMilliseconds))));
         glow.BeginAnimation(OpacityProperty, blip);
     }
 
@@ -720,9 +722,22 @@ public sealed class DeckWindow : Window
         return brush;
     }
 
-    private void Activate(nint target)
+    private async Task Activate(nint target)
     {
         actionWarning = NativeWindows.Activate(target) ?? "";
+        if (actionWarning.Length == 0)
+        {
+            for (var attempt = 0; attempt < 10 && NativeWindows.GetForegroundWindow() != target; attempt++)
+                await Task.Delay(25);
+            actionWarning = NativeWindows.OpenCopilotChat(target) ?? "";
+            for (var attempt = 0; attempt < 10 && actionWarning.Length == 0; attempt++)
+            {
+                await Task.Delay(50);
+                var focusWarning = NativeWindows.FocusCopilotChatInput(target);
+                if (focusWarning is null) break;
+                actionWarning = attempt == 9 ? focusWarning : "";
+            }
+        }
         AcknowledgeForegroundTile();
         PaintTiles();
         if (actionWarning.Length > 0) AppStorage.Log(actionWarning);

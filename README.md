@@ -10,15 +10,15 @@ There is no public network service and nothing is uploaded to external services.
 - **Dark green**: all associated live sessions are idle. The button says
   **Idle**.
 - **Green blip**: a running agent has completed. Its button flashes bright
-  green for 50 milliseconds, then remains dark for 1.45 seconds. The blip
+  green for 50 milliseconds, then remains dark for 1.95 seconds. The blip
   repeats until that VS Code window gains focus, whether directly, by clicking
   its button, or by using its hotkey. Compact view says **Done** while this
   acknowledgement is pending, then returns to **Idle** after focus.
 - **Blue**: at least one session is running.
 - **Yellow blip**: a session has an unanswered question or permission prompt.
   Its deep amber off state is balanced against the other dark lamp colors, and
-  it uses the same 50-millisecond-on, 1.45-second-off cycle until the question
-  is answered.
+  it uses a 50-millisecond-on, 1.45-second-off cycle until the question is
+  answered.
 - **Gray**: workspace/status cannot be determined, or telemetry cannot be read.
 - Buttons use rounded glass surfaces, subtle state-colored gradients, a top
   sheen, and hover/pressed highlights at both sizes without changing status
@@ -30,7 +30,9 @@ There is no public network service and nothing is uploaded to external services.
   At 64 pixels, active session titles appear on the button; at 32 pixels, the
   button displays its position, state, and active-session count.
 - Click a button or press its global hotkey to bring its VS Code window forward.
-  If that window is already foreground, the same action toggles maximize/restore.
+  VSC Deck then focuses the GitHub Copilot Chat input so you can immediately
+  type or dictate. If that window is already foreground, the same action also
+  toggles maximize/restore.
 - In **Large** view, drag the **grip below a button** onto another button to
   reorder it. A blue insertion marker shows the resulting position, including
   positions before the first and after the last button. The marker is hidden

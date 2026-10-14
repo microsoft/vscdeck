@@ -3,6 +3,7 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Interop;
 using System.Windows.Media;
@@ -128,6 +129,25 @@ internal static class Program
                 var remoteAgain = monitor.Scan();
                 Check(remoteAgain.Sessions.Count == remote.Sessions.Count, "Cached remote poll preserves every session");
             }
+            var chatTarget = NativeWindows.Discover().First();
+            Check(NativeWindows.Activate(chatTarget.Handle) is null, "Real VS Code activation for Copilot Chat focus");
+            PumpUntil(() => NativeWindows.GetForegroundWindow() == chatTarget.Handle);
+            Check(NativeWindows.OpenCopilotChat(chatTarget.Handle) is null, "Real VS Code Chat view open request");
+            string? chatFocusWarning = null;
+            PumpUntil(() =>
+            {
+                chatFocusWarning = NativeWindows.FocusCopilotChatInput(chatTarget.Handle);
+                return chatFocusWarning is null;
+            }, 3000);
+            var focusedChatInput = AutomationElement.FocusedElement;
+            var chatEditor = TreeWalker.ControlViewWalker.GetParent(focusedChatInput);
+            var chatSession = chatEditor is null ? null : TreeWalker.ControlViewWalker.GetParent(chatEditor);
+            Check(chatFocusWarning is null &&
+                focusedChatInput.Current.ControlType == ControlType.Edit &&
+                focusedChatInput.Current.ClassName == "native-edit-context" &&
+                chatSession?.Current.ClassName.StartsWith("interactive-session",
+                    StringComparison.Ordinal) == true,
+                "Real VS Code Copilot Chat text box receives keyboard focus");
             var target = new Window { Title = "VSC Deck isolated activation test", Width = 300, Height = 150, Left = 60, Top = 60, Topmost = true };
             testWindows.Add(target);
             target.Show();
@@ -253,18 +273,19 @@ internal static class Program
                 "Compact completion label says Done until focus acknowledgement restores Idle");
             var idleButton = tileButtons.First(button => button != runningButton);
             DeckWindow.SetCompletionBlip(idleButton, true);
-            Check(DeckWindow.AttentionBlipOnMilliseconds == 50 &&
-                DeckWindow.AttentionBlipCycleMilliseconds == 1500 &&
+            Check(DeckWindow.BlipOnMilliseconds == 50 &&
+                DeckWindow.CompletionBlipCycleMilliseconds == 2000 &&
                 idleButton.Template.FindName("CompletionGlow", idleButton) is Border
                     { HasAnimatedProperties: true, Background: RadialGradientBrush completionBrush } &&
                 completionBrush.GradientStops.Any(stop => stop.Color.G > stop.Color.R && stop.Color.G > stop.Color.B),
-                "Completed button uses a repeating 50-millisecond green blip with a 1.45-second off state");
+                "Completed button uses a repeating 50-millisecond green blip with a 1.95-second off state");
             DeckWindow.SetCompletionBlip(idleButton, false);
             Check(idleButton.Template.FindName("CompletionGlow", idleButton) is Border
                     { HasAnimatedProperties: false, Opacity: 0 },
                 "Acknowledging completion removes the green blip");
             DeckWindow.SetQuestionBlip(idleButton, true);
-            Check(idleButton.Template.FindName("QuestionGlow", idleButton) is Border
+            Check(DeckWindow.QuestionBlipCycleMilliseconds == 1500 &&
+                idleButton.Template.FindName("QuestionGlow", idleButton) is Border
                     { HasAnimatedProperties: true, Background: RadialGradientBrush questionBrush } &&
                 questionBrush.GradientStops.Any(stop => stop.Color.R > stop.Color.B && stop.Color.G > stop.Color.B),
                 "Question button uses its own repeating 50-millisecond yellow blip");

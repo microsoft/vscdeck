@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Windows.Automation;
 using VSCDeck.Core;
 
 namespace VSCDeck.App;
@@ -105,6 +106,64 @@ internal static class NativeWindows
             Window = hwnd, Flags = 3, Count = 3 };
         FlashWindowEx(ref flash);
         return "Windows denied foreground activation; the VS Code taskbar button has been flashed.";
+    }
+
+    internal static string? OpenCopilotChat(nint hwnd)
+    {
+        if (GetForegroundWindow() != hwnd)
+            return "Copilot Chat was not opened because the selected VS Code window is not foreground.";
+        try
+        {
+            var root = AutomationElement.FromHandle(hwnd);
+            if (FindCopilotChatInput(root) is not null) return null;
+            var buttons = root.FindAll(TreeScope.Descendants, new AndCondition(
+                new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Button),
+                new PropertyCondition(AutomationElement.NameProperty, "Toggle Chat")));
+            foreach (AutomationElement button in buttons)
+            {
+                if (!button.TryGetCurrentPattern(InvokePattern.Pattern, out var pattern) ||
+                    pattern is not InvokePattern invoke) continue;
+                invoke.Invoke();
+                return null;
+            }
+            return "Could not locate the VS Code Chat action.";
+        }
+        catch (ElementNotAvailableException ex)
+        {
+            return "Could not open Copilot Chat: " + ex.Message;
+        }
+    }
+
+    internal static string? FocusCopilotChatInput(nint hwnd)
+    {
+        if (GetForegroundWindow() != hwnd)
+            return "Copilot Chat input was not focused because the selected VS Code window is not foreground.";
+        try
+        {
+            var root = AutomationElement.FromHandle(hwnd);
+            var input = FindCopilotChatInput(root);
+            if (input is not null) { input.SetFocus(); return null; }
+            return "Could not locate the Copilot Chat input after opening the Chat view.";
+        }
+        catch (ElementNotAvailableException ex)
+        {
+            return "Could not focus the Copilot Chat input: " + ex.Message;
+        }
+    }
+
+    private static AutomationElement? FindCopilotChatInput(AutomationElement root)
+    {
+        var edits = root.FindAll(TreeScope.Descendants, new AndCondition(
+            new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Edit),
+            new PropertyCondition(AutomationElement.ClassNameProperty, "native-edit-context")));
+        foreach (AutomationElement edit in edits)
+        {
+            var editor = TreeWalker.ControlViewWalker.GetParent(edit);
+            var session = editor is null ? null : TreeWalker.ControlViewWalker.GetParent(editor);
+            if (session?.Current.ClassName.StartsWith("interactive-session",
+                StringComparison.Ordinal) == true) return edit;
+        }
+        return null;
     }
 
     internal static PixelOffset SnapToMonitorEdges(nint hwnd, int threshold)
