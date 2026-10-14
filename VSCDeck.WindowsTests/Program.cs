@@ -61,6 +61,10 @@ internal static class Program
             Check(WorkspaceColorCustomization.Parse("""{"editor.fontSize": 14}""") is null &&
                 DeckWindow.ColorStripeBrush(null) is SolidColorBrush { Color.A: 0 },
                 "A workspace without an explicit debugging color uses a transparent stripe");
+            Check(CopilotMonitor.AvailableWorkspaces(
+                    [@"c:\work\local"], ["docker:devbox:/work/remote"])
+                .SetEquals([@"C:\WORK\LOCAL", "docker:devbox:/work/remote"]),
+                "Available workspaces include both live local IDE paths and remote sources");
             var startupTestPath = @"Software\VSCDeck.Tests." + Guid.NewGuid().ToString("N");
             try
             {

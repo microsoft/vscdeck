@@ -109,8 +109,13 @@ internal sealed class CopilotMonitor : IDisposable
             }
             return window with { Workspace = selected, DebuggingBackground = debuggingBackground };
         }).ToList();
-        return new(windows, sessions, workspaceErrors, warnings, remote.Available);
+        return new(windows, sessions, workspaceErrors, warnings,
+            AvailableWorkspaces(livePaths, remote.Available));
     }
+
+    internal static HashSet<string> AvailableWorkspaces(
+        IEnumerable<string> local, IEnumerable<string> remote) =>
+        local.Concat(remote).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
     private static bool MatchesProject(string project, string path)
     {
