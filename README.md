@@ -1,4 +1,4 @@
-# VSDeck
+# VSC Deck
 
 A C# / WPF, Windows-only floating overview of VS Code windows and their local
 GitHub Copilot agent-host sessions. It never closes, reloads, or installs anything
@@ -34,10 +34,10 @@ There is no public network service and nothing is uploaded to external services.
   per-position hotkeys. Defaults are **Ctrl+Shift+1** through
   **Ctrl+Shift+9**, followed by **Ctrl+Shift+0**. Conflicts are displayed, not silently
   ignored. Add more shortcuts if there are more than ten windows.
-- **X** closes only VSDeck. It does not affect any VS Code process.
+- **X** closes only VSC Deck. It does not affect any VS Code process.
 
 Settings, workspace ordering, and panel position persist in
-`%LOCALAPPDATA%\VSDeck\settings.json`. Closed workspaces are retained in the saved
+`%LOCALAPPDATA%\VSCDeck\settings.json`. Closed workspaces are retained in the saved
 order. Workspace directory identities are preferred to title/project identities.
 Saved 30-pixel settings from the initial version are automatically migrated to
 32 pixels without changing ordering, hotkeys, or position.
@@ -66,7 +66,7 @@ live sessions is idle; an unavailable source is unknown.
 ### Existing dev-container windows
 
 The five existing dev-container workspaces are configured in `RemoteSources` in
-the local settings file. VSDeck uses the already-installed Docker and OpenSSH
+the local settings file. VSC Deck uses the already-installed Docker and OpenSSH
 clients, your existing Docker context and SSH configuration, and the hosts' and
 containers' existing Python 3 interpreters. SSH is batch-only: no password or authentication
 dialog is opened. No extension, daemon, helper file, or package is installed in
@@ -87,12 +87,12 @@ Handshake allowance is 25 seconds, SSH keepalives run every 15 seconds, and
 failed connections retry with shared 5/10/20/30-second capped backoff. Network
 interruptions preserve event offsets for incremental recovery. An unavailable
 connection still produces unknown status rather than stale success.
-Closing VSDeck terminates only its own SSH clients, never VS Code's existing
+Closing VSC Deck terminates only its own SSH clients, never VS Code's existing
 connections. SSH configuration and the VS Code-owned tunnel are not changed.
 
 Additional sources can be added to `RemoteSources` in
-`%LOCALAPPDATA%\VSDeck\settings.json` while VSDeck is closed, then applied by
-restarting **only VSDeck**. For example:
+`%LOCALAPPDATA%\VSCDeck\settings.json` while VSC Deck is closed, then applied by
+restarting **only VSC Deck**. For example:
 
 ```json
 {
@@ -112,10 +112,10 @@ but show unknown if no supported local source can be associated.
 Workspace matching uses live IDE/session directory names and window titles.
 Ambiguous directory names are reported rather than guessing. Session histories
 without a live owning process are excluded. Windows foreground restrictions can
-occasionally deny activation; VSDeck reports that and flashes the VS Code taskbar
+occasionally deny activation; VSC Deck reports that and flashes the VS Code taskbar
 button instead of trying to bypass Windows focus protection.
 
-Diagnostics are in `%LOCALAPPDATA%\VSDeck\status.json` and `vsdeck.log`.
+Diagnostics are in `%LOCALAPPDATA%\VSCDeck\status.json` and `vscdeck.log`.
 The status file contains local workspace/session descriptions, so treat it as
 potentially sensitive. Nothing is uploaded.
 Concurrent monitor messages are serialized before appending to the log. If the
@@ -129,17 +129,17 @@ polls are cleared before reporting their error so subsequent polls can retry.
 Requires the .NET 10 SDK on Windows. No third-party NuGet packages are needed.
 
 ```powershell
-dotnet build .\VSDeck.App\VSDeck.App.csproj -c Release
-dotnet run --project .\VSDeck.Tests\VSDeck.Tests.csproj -c Release
-dotnet run --project .\VSDeck.WindowsTests\VSDeck.WindowsTests.csproj -c Release
-dotnet run --project .\VSDeck.WindowsTests\VSDeck.WindowsTests.csproj -c Release -- --logging-only
-dotnet run --project .\VSDeck.WindowsTests\VSDeck.WindowsTests.csproj -c Release -- --ssh-only devbox
-dotnet publish .\VSDeck.App\VSDeck.App.csproj -c Release -o .\artifacts\VSDeck
-.\artifacts\VSDeck\VSDeck.exe
+dotnet build .\VSCDeck.App\VSCDeck.App.csproj -c Release
+dotnet run --project .\VSCDeck.Tests\VSCDeck.Tests.csproj -c Release
+dotnet run --project .\VSCDeck.WindowsTests\VSCDeck.WindowsTests.csproj -c Release
+dotnet run --project .\VSCDeck.WindowsTests\VSCDeck.WindowsTests.csproj -c Release -- --logging-only
+dotnet run --project .\VSCDeck.WindowsTests\VSCDeck.WindowsTests.csproj -c Release -- --ssh-only devbox
+dotnet publish .\VSCDeck.App\VSCDeck.App.csproj -c Release -o .\artifacts\VSCDeck
+.\artifacts\VSCDeck\VSCDeck.exe
 ```
 
 The published application requires the .NET 10 Windows Desktop runtime.
-The SDK installed for this build is local to `%LOCALAPPDATA%\VSDeck\dotnet`;
+The SDK installed for this build is local to `%LOCALAPPDATA%\VSCDeck\dotnet`;
 its `dotnet.exe` can be used explicitly if `dotnet` on PATH has no SDK.
 The dependency-free test executable returns nonzero on assertion failure.
 The Windows test executable exercises actual desktop controls, mouse drag/drop,

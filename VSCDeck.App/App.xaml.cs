@@ -2,7 +2,7 @@ using System.IO;
 using System.Threading;
 using System.Windows;
 
-namespace VSDeck.App;
+namespace VSCDeck.App;
 
 public partial class App : Application
 {
@@ -11,19 +11,19 @@ public partial class App : Application
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
-        instance = new Mutex(true, @"Local\VSDeck-" + Environment.UserName, out var created);
+        instance = new Mutex(true, @"Local\VSCDeck-" + Environment.UserName, out var created);
         if (!created)
         {
-            MessageBox.Show("VSDeck is already running.", "VSDeck");
+            MessageBox.Show("VSC Deck is already running.", "VSC Deck");
             Shutdown();
             return;
         }
         DispatcherUnhandledException += (_, args) =>
         {
             AppStorage.Log(args.Exception.ToString());
-            MessageBox.Show("VSDeck encountered an error:\n" + args.Exception.Message +
+            MessageBox.Show("VSC Deck encountered an error:\n" + args.Exception.Message +
                 "\n\n" + (AppStorage.LoggingWarning ?? "See " + AppStorage.LogPath),
-                "VSDeck error", MessageBoxButton.OK, MessageBoxImage.Error);
+                "VSC Deck error", MessageBoxButton.OK, MessageBoxImage.Error);
             Shutdown(1);
             args.Handled = true;
         };
@@ -35,8 +35,8 @@ public partial class App : Application
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException or FormatException)
         {
             AppStorage.Log(ex.ToString());
-            MessageBox.Show("Unable to load VSDeck settings:\n" + ex.Message +
-                (AppStorage.LoggingWarning is { } warning ? "\n\n" + warning : ""), "VSDeck error");
+            MessageBox.Show("Unable to load VSC Deck settings:\n" + ex.Message +
+                (AppStorage.LoggingWarning is { } warning ? "\n\n" + warning : ""), "VSC Deck error");
             Shutdown(1);
         }
     }

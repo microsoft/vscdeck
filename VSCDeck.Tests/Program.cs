@@ -1,7 +1,7 @@
 using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
-using VSDeck.Core;
+using VSCDeck.Core;
 
 var count = 0;
 void Check(bool condition, string name)
@@ -81,7 +81,7 @@ Reject(() => Hotkey.Parse("1"), "Unmodified key rejected");
 Reject(() => Hotkey.Parse("Ctrl+F25"), "Unsupported function key rejected");
 Reject(() => Hotkey.ParseList(""), "Empty hotkey list rejected");
 
-var file = Path.Combine(Path.GetTempPath(), "vsdeck-test-" + Guid.NewGuid() + ".jsonl");
+var file = Path.Combine(Path.GetTempPath(), "vscdeck-test-" + Guid.NewGuid() + ".jsonl");
 try
 {
     var reader = new SessionEventReader("stream");

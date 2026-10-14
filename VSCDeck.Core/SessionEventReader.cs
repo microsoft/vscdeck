@@ -1,7 +1,7 @@
 using System.Text;
 using System.Text.Json;
 
-namespace VSDeck.Core;
+namespace VSCDeck.Core;
 
 public sealed class SessionEventReader(string id)
 {

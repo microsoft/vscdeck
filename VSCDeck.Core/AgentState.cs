@@ -1,6 +1,6 @@
 using System.Text.Json;
 
-namespace VSDeck.Core;
+namespace VSCDeck.Core;
 
 public enum Activity { Unknown, Idle, Running, Question }
 

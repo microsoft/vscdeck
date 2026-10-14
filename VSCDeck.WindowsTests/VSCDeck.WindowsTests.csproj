@@ -8,6 +8,6 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="..\VSDeck.App\VSDeck.App.csproj" />
+    <ProjectReference Include="..\VSCDeck.App\VSCDeck.App.csproj" />
   </ItemGroup>
 </Project>

@@ -1,8 +1,8 @@
 using System.Windows;
 using System.Windows.Controls;
-using VSDeck.Core;
+using VSCDeck.Core;
 
-namespace VSDeck.App;
+namespace VSCDeck.App;
 
 public sealed class SettingsWindow : Window
 {
@@ -15,7 +15,7 @@ public sealed class SettingsWindow : Window
 
     public SettingsWindow(Settings settings)
     {
-        Title = "VSDeck settings";
+        Title = "VSC Deck settings";
         Width = 470;
         SizeToContent = SizeToContent.Height;
         ResizeMode = ResizeMode.NoResize;

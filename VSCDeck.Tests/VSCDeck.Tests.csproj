@@ -1,14 +1,12 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <OutputType>WinExe</OutputType>
-    <TargetFramework>net10.0-windows</TargetFramework>
-    <UseWPF>true</UseWPF>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-    <AssemblyName>VSDeck</AssemblyName>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="..\VSDeck.Core\VSDeck.Core.csproj" />
+    <ProjectReference Include="..\VSCDeck.Core\VSCDeck.Core.csproj" />
   </ItemGroup>
 </Project>

@@ -2,7 +2,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Threading;
 
-namespace VSDeck.App;
+namespace VSCDeck.App;
 
 internal sealed class LogWriter(string path)
 {

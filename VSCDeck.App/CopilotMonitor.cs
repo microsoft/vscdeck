@@ -1,9 +1,9 @@
 using System.Diagnostics;
 using System.IO;
 using System.Text.Json;
-using VSDeck.Core;
+using VSCDeck.Core;
 
-namespace VSDeck.App;
+namespace VSCDeck.App;
 
 public sealed record MonitorSnapshot(List<CodeWindow> Windows, List<SessionStatus> Sessions,
     Dictionary<string, string> WorkspaceErrors, List<string> Warnings, HashSet<string> AvailableWorkspaces);

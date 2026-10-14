@@ -1,4 +1,4 @@
-namespace VSDeck.Core;
+namespace VSCDeck.Core;
 
 public sealed record Hotkey(uint Modifiers, uint Key, string Label)
 {

@@ -9,9 +9,9 @@ using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Data;
 using System.Windows.Threading;
-using VSDeck.Core;
+using VSCDeck.Core;
 
-namespace VSDeck.App;
+namespace VSCDeck.App;
 
 public sealed class DeckWindow : Window
 {
@@ -47,7 +47,7 @@ public sealed class DeckWindow : Window
         this.settings = settings;
         monitor = new CopilotMonitor(settings.RemoteSources);
         hotkeys = Hotkey.ParseList(settings.Hotkeys);
-        Title = "VSDeck - Copilot overview";
+        Title = "VSC Deck - Copilot overview";
         Topmost = true;
         ShowActivated = false;
         WindowStyle = WindowStyle.None;
@@ -67,7 +67,7 @@ public sealed class DeckWindow : Window
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         header = new DockPanel { Background = new SolidColorBrush(Color.FromRgb(40, 45, 55)) };
-        var close = CreateCaptionButton("×", "Close VSDeck", CloseButtonTemplate);
+        var close = CreateCaptionButton("×", "Close VSC Deck", CloseButtonTemplate);
         close.Click += (_, _) => Close();
         DockPanel.SetDock(close, Dock.Right);
         header.Children.Add(close);
@@ -79,7 +79,7 @@ public sealed class DeckWindow : Window
         compact.Click += (_, _) => SwitchToCompactMode();
         DockPanel.SetDock(compact, Dock.Right);
         header.Children.Add(compact);
-        var caption = new TextBlock { Text = "VSDeck  ::", FontSize = 12, Margin = new(8, 5, 16, 5),
+        var caption = new TextBlock { Text = "VSC Deck  ::", FontSize = 12, Margin = new(8, 5, 16, 5),
             Cursor = Cursors.SizeAll };
         caption.MouseLeftButtonDown += (_, args) =>
         {
@@ -288,18 +288,18 @@ public sealed class DeckWindow : Window
                     var point = e.GetPosition(grip);
                     if (Math.Abs(point.X - start.X) < SystemParameters.MinimumHorizontalDragDistance &&
                         Math.Abs(point.Y - start.Y) < SystemParameters.MinimumVerticalDragDistance) return;
-                    DragDrop.DoDragDrop(grip, new DataObject("VSDeck.Tile", tile.Window.Handle.ToInt64()), DragDropEffects.Move);
+                    DragDrop.DoDragDrop(grip, new DataObject("VSCDeck.Tile", tile.Window.Handle.ToInt64()), DragDropEffects.Move);
                 };
                 column.Children.Add(grip);
             }
             column.DragOver += (_, e) =>
             {
-                e.Effects = e.Data.GetDataPresent("VSDeck.Tile") ? DragDropEffects.Move : DragDropEffects.None;
+                e.Effects = e.Data.GetDataPresent("VSCDeck.Tile") ? DragDropEffects.Move : DragDropEffects.None;
                 e.Handled = true;
             };
             column.Drop += (_, e) =>
             {
-                if (e.Data.GetData("VSDeck.Tile") is not long handle) return;
+                if (e.Data.GetData("VSCDeck.Tile") is not long handle) return;
                 var from = tiles.FindIndex(t => t.Window.Handle.ToInt64() == handle);
                 var to = tiles.IndexOf(tile);
                 if (from < 0 || to < 0 || from == to) return;
@@ -607,7 +607,7 @@ public sealed class DeckWindow : Window
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             AppStorage.Log(ex.ToString());
-            MessageBox.Show(this, "Settings could not be saved:\n" + ex.Message, "VSDeck settings error");
+            MessageBox.Show(this, "Settings could not be saved:\n" + ex.Message, "VSC Deck settings error");
         }
     }
 

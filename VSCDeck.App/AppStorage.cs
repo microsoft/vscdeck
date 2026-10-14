@@ -1,7 +1,7 @@
 using System.IO;
 using System.Text.Json;
 
-namespace VSDeck.App;
+namespace VSCDeck.App;
 
 public sealed class Settings
 {
@@ -18,8 +18,8 @@ public sealed class Settings
 public static class AppStorage
 {
     public static string DirectoryPath { get; } = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "VSDeck");
-    public static string LogPath => Path.Combine(DirectoryPath, "vsdeck.log");
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "VSCDeck");
+    public static string LogPath => Path.Combine(DirectoryPath, "vscdeck.log");
     public static string SettingsPath => Path.Combine(DirectoryPath, "settings.json");
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
     private static readonly LogWriter Logger = new(LogPath);

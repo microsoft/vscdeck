@@ -2,9 +2,9 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
-using VSDeck.Core;
+using VSCDeck.Core;
 
-namespace VSDeck.App;
+namespace VSCDeck.App;
 
 public sealed record CodeWindow(nint Handle, int ProcessId, string Title, string Project, string? Workspace)
 {
@@ -113,7 +113,7 @@ internal static class NativeWindows
         var offset = CalculateSnapOffset(window, GetMonitorBounds(hwnd), threshold);
         if (offset != default && !SetWindowPos(hwnd, 0, window.Left + offset.X, window.Top + offset.Y,
             0, 0, 0x0001 | 0x0004 | 0x0010))
-            throw new Win32Exception(Marshal.GetLastWin32Error(), "Unable to snap VSDeck to the monitor edge.");
+            throw new Win32Exception(Marshal.GetLastWin32Error(), "Unable to snap VSC Deck to the monitor edge.");
         return offset;
     }
 

@@ -8,10 +8,10 @@ using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
-using VSDeck.App;
-using VSDeck.Core;
+using VSCDeck.App;
+using VSCDeck.Core;
 
-namespace VSDeck.WindowsTests;
+namespace VSCDeck.WindowsTests;
 
 internal static class Program
 {
@@ -82,7 +82,7 @@ internal static class Program
                 var remoteAgain = monitor.Scan();
                 Check(remoteAgain.Sessions.Count == remote.Sessions.Count, "Cached remote poll preserves every session");
             }
-            var target = new Window { Title = "VSDeck isolated activation test", Width = 300, Height = 150, Left = 60, Top = 60, Topmost = true };
+            var target = new Window { Title = "VSC Deck isolated activation test", Width = 300, Height = 150, Left = 60, Top = 60, Topmost = true };
             testWindows.Add(target);
             target.Show();
             target.Activate();
@@ -143,7 +143,7 @@ internal static class Program
             var settingsButton = Descendants<Button>(deck).Single(b =>
                 System.Windows.Automation.AutomationProperties.GetName(b) == "Settings");
             var closeButton = Descendants<Button>(deck).Single(b =>
-                System.Windows.Automation.AutomationProperties.GetName(b) == "Close VSDeck");
+                System.Windows.Automation.AutomationProperties.GetName(b) == "Close VSC Deck");
             Check(compactToggle.IsVisible && compactToggle.PointToScreen(new Point()).X <
                 settingsButton.PointToScreen(new Point()).X,
                 "Large view shows the compact toggle to the left of Settings");
@@ -159,7 +159,7 @@ internal static class Program
                     compactToggle,
                     settingsButton,
                     closeButton,
-                    Descendants<TextBlock>(deck).Single(t => t.Text == "VSDeck  ::")
+                    Descendants<TextBlock>(deck).Single(t => t.Text == "VSC Deck  ::")
                 }.All(element => element.ToolTip is null),
                 "Large title-bar controls have no tooltips");
             Check(tileButtons.All(b => Math.Abs(b.ActualWidth * dpi.DpiScaleX - 64) < .1 &&
@@ -271,10 +271,10 @@ internal static class Program
                 "Compact buttons retain the same glass finish within their exact pixel bounds");
             Check(compactButtons.All(b => VisualTreeHelper.GetParent(b) is StackPanel p &&
                 !p.Children.OfType<Border>().Any()), "Compact buttons omit reorder grips");
-            Check(Descendants<TextBlock>(compact).Where(t => t.Text == "VSDeck  ::")
+            Check(Descendants<TextBlock>(compact).Where(t => t.Text == "VSC Deck  ::")
                     .All(t => !t.IsVisible) &&
                 Descendants<Button>(compact).Where(b =>
-                    System.Windows.Automation.AutomationProperties.GetName(b) is "Settings" or "Close VSDeck")
+                    System.Windows.Automation.AutomationProperties.GetName(b) is "Settings" or "Close VSC Deck")
                     .All(b => !b.IsVisible),
                 "Compact view hides the title bar, settings button, and close button");
             var largeToggle = Descendants<Button>(compact).Single(b => Equals(b.Content, "↗"));
@@ -296,13 +296,13 @@ internal static class Program
             largeToggle.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             PumpUntil(() => compactSettings.ButtonSize == 64 && TileButtons(compact).All(b =>
                 Math.Abs(b.ActualWidth * dpi.DpiScaleX - 64) < .1));
-            Check(Descendants<TextBlock>(compact).Any(t => t.Text == "VSDeck  ::"),
+            Check(Descendants<TextBlock>(compact).Any(t => t.Text == "VSC Deck  ::"),
                 "Compact expand button switches to large view");
             Descendants<Button>(compact).Single(b => Equals(b.Content, "↙"))
                 .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             PumpUntil(() => compactSettings.ButtonSize == 32 && TileButtons(compact).All(b =>
                 Math.Abs(b.ActualWidth * dpi.DpiScaleX - 32) < .1));
-            Check(!Descendants<TextBlock>(compact).Single(t => t.Text == "VSDeck  ::").IsVisible,
+            Check(!Descendants<TextBlock>(compact).Single(t => t.Text == "VSC Deck  ::").IsVisible,
                 "Large compact button switches back to compact view");
             compact.Close();
 
@@ -359,7 +359,7 @@ internal static class Program
 
     private static int RunLoggingTests()
     {
-        var path = Path.Combine(Path.GetTempPath(), "vsdeck-log-test-" + Guid.NewGuid() + ".log");
+        var path = Path.Combine(Path.GetTempPath(), "vscdeck-log-test-" + Guid.NewGuid() + ".log");
         try
         {
             var collisions = 0;

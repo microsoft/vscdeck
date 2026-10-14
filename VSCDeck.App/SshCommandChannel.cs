@@ -4,7 +4,7 @@ using System.IO;
 using System.Text;
 using System.Text.Json;
 
-namespace VSDeck.App;
+namespace VSCDeck.App;
 
 internal sealed class SshCommandChannel(string host) : IDisposable
 {
@@ -142,7 +142,7 @@ internal sealed class SshCommandChannel(string host) : IDisposable
             }
             catch (Win32Exception ex)
             {
-                if (!active.HasExited) AppStorage.Log($"Cannot stop VSDeck-owned SSH client {active.Id}: {ex.Message}");
+                if (!active.HasExited) AppStorage.Log($"Cannot stop VSC Deck-owned SSH client {active.Id}: {ex.Message}");
             }
             finally { active.Dispose(); }
         }

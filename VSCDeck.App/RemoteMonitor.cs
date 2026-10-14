@@ -2,9 +2,9 @@ using System.Diagnostics;
 using System.IO;
 using System.Text;
 using System.Text.Json;
-using VSDeck.Core;
+using VSCDeck.Core;
 
-namespace VSDeck.App;
+namespace VSCDeck.App;
 
 public sealed class RemoteSource
 {
