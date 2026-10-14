@@ -115,6 +115,10 @@ live `.copilot\ide` lock files without using their connection credentials.
 Local polling and flashing use a 750 ms interval. Pending questions take priority over running work,
 including when another session in the same workspace is idle.
 
+Aborting a chat clears its outstanding work and questions, including when
+closing or archiving the active chat emits an abort event. Shut-down sessions
+and sessions without a live owner are excluded from the panel.
+
 These are local implementation details, not a stable public Copilot telemetry
 API. Traditional extension-host Copilot Chat, unconfigured remote logs, custom
 VS Code profiles/data locations, and future event-format changes may have no

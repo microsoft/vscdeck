@@ -108,6 +108,7 @@ public sealed class SessionTracker(string id)
             case "session.shutdown":
             case "session.error":
             case "session.abort":
+            case "abort":
                 running = false;
                 tools.Clear();
                 questions.Clear();

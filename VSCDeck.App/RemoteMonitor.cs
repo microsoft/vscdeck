@@ -233,7 +233,7 @@ result = {"available": os.path.isdir(root), "sessions": []}
 types = {"session.start", "user.message", "assistant.turn_start", "assistant.message",
          "assistant.turn_end", "tool.execution_start", "tool.execution_complete",
          "permission.requested", "permission.completed", "session.idle",
-         "session.task_complete", "session.shutdown", "session.error", "session.abort"}
+         "session.task_complete", "session.shutdown", "session.error", "session.abort", "abort"}
 if result["available"]:
     boot = next(int(x.split()[1]) for x in open("/proc/stat") if x.startswith("btime "))
     ticks = os.sysconf("SC_CLK_TCK")

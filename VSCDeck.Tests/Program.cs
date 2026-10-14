@@ -52,6 +52,23 @@ Check(tracker.Status.Activity == Activity.Idle && tracker.Status.Description == 
 Apply(tracker, "user.message", new { content = "Another task" });
 Check(tracker.Status.Activity == Activity.Running, "Completed session can be reused");
 
+Apply(tracker, "tool.execution_start", new { toolCallId = "cancelled-question",
+    toolName = "ask_user", arguments = new { question = "Continue?" } });
+Apply(tracker, "permission.requested", new { requestId = "cancelled-permission" });
+Apply(tracker, "abort", new { });
+Apply(tracker, "assistant.turn_end", new { });
+Check(tracker.Status.Activity == Activity.Idle && tracker.Status.Description == "Idle",
+    "Closing a chat clears outstanding questions, permissions, and tools on abort");
+Apply(tracker, "user.message", new { content = "Resume after closing" });
+Apply(tracker, "tool.execution_start", new { toolCallId = "cancelled-tool", toolName = "powershell" });
+Apply(tracker, "abort", new { });
+Apply(tracker, "assistant.turn_end", new { });
+Check(tracker.Status.Activity == Activity.Idle && !tracker.Ended,
+    "Closing a running chat clears work without permanently ending the session");
+Apply(tracker, "user.message", new { content = "Reopen session" });
+Check(tracker.Status.Activity == Activity.Running,
+    "An aborted session can resume without stale question state");
+
 var idle = new SessionStatus("idle", @"c:\project", "Idle session", Activity.Idle, "Idle", DateTimeOffset.Now);
 var run = idle with { Id = "run", Activity = Activity.Running, Description = "Build" };
 var question = idle with { Id = "question", Activity = Activity.Question, Description = "Approve?" };
