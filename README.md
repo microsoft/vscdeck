@@ -5,6 +5,24 @@ GitHub Copilot agent-host sessions. It never closes, reloads, or installs anythi
 in VS Code. Telemetry is read locally or from your configured Docker/SSH hosts.
 There is no public network service and nothing is uploaded to external services.
 
+## Views
+
+### Large
+
+![VSC Deck in Large view with six VS Code workspace buttons](docs/images/vscdeck-large.png)
+
+Large view uses 64 x 64 physical-pixel buttons with a fixed three-line layout:
+position, workspace name, and state. It also provides the title bar, settings
+and close actions, workspace reorder grips, and the switch to Compact view.
+
+### Compact
+
+![VSC Deck in Compact view with six VS Code workspace buttons](docs/images/vscdeck-compact.png)
+
+Compact view uses 32 x 32 physical-pixel buttons and removes the title bar and
+reorder grips. The narrow strip at the right moves the panel, and the expand
+button returns to Large view.
+
 ## Using the panel
 
 - **Dark green**: all associated live sessions are idle. The button says
@@ -12,8 +30,8 @@ There is no public network service and nothing is uploaded to external services.
 - **Green blip**: a running agent has completed. Its button flashes bright
   green for 50 milliseconds, then remains dark for 1.95 seconds. The blip
   repeats until that VS Code window gains focus, whether directly, by clicking
-  its button, or by using its hotkey. Compact view says **Done** while this
-  acknowledgement is pending, then returns to **Idle** after focus.
+  its button, or by using its hotkey. Both views say **Done** while this
+  acknowledgement is pending, then return to **Idle** after focus.
 - **Blue**: at least one session is running.
 - **Yellow blip**: a session has an unanswered question or permission prompt.
   Its deep amber off state is balanced against the other dark lamp colors, and
@@ -51,7 +69,8 @@ There is no public network service and nothing is uploaded to external services.
   are added in discovery order.
 - Drag the title grip to move the always-on-top panel.
 - When **Snap to screen edges** is enabled in Settings, moving the panel within
-  eight physical pixels of any monitor edge snaps it to that edge.
+  eight physical pixels of any monitor edge snaps it to that edge. Snapping is
+  enabled by default.
 - **Large** view uses 64 x 64 physical-pixel buttons and includes the title bar,
   settings, close button, and reorder grips. Use the ↙ title-bar button to
   switch to Compact view.
@@ -60,15 +79,23 @@ There is no public network service and nothing is uploaded to external services.
   right edge to move the panel.
 - **Settings** selects **Large** or **Compact** view and edits comma-separated,
   per-position hotkeys. Defaults are **Ctrl+Shift+1** through
-  **Ctrl+Shift+9**, followed by **Ctrl+Shift+0**. Conflicts are displayed, not silently
-  ignored. Add more shortcuts if there are more than ten windows.
+  **Ctrl+Shift+9**, followed by **Ctrl+Shift+0**. Each shortcut accepts one or
+  more of **Ctrl**, **Alt**, **Shift**, or **Win**, plus a digit, letter, or
+  **F1** through **F24**; **F12** is reserved by Windows. At least one shortcut
+  is required, and every position must have a unique shortcut. Conflicts are
+  displayed, not silently ignored. Add more shortcuts if there are more than
+  ten windows.
 - Enable **Show in notification area instead of the taskbar** to replace the
   full taskbar button with the VSC Deck tray icon. Its menu provides
   **Show/Hide**, **Settings**, and **Exit** while the status panel keeps running.
+  Double-clicking the icon restores the panel. This option is disabled by
+  default.
 - Enable **Start VSC Deck when I sign in to Windows** to register the current
   executable in the current user's Windows startup settings. This option does
   not require administrator rights and is disabled by default.
 - **X** closes only VSC Deck. It does not affect any VS Code process.
+- VSC Deck runs as a single instance per Windows user. Starting it again shows
+  an “already running” message and exits without disturbing the existing panel.
 
 Settings, workspace ordering, and panel position persist in
 `%LOCALAPPDATA%\VSCDeck\settings.json`. Closed workspaces are retained in the saved
@@ -179,8 +206,6 @@ dotnet publish .\VSCDeck.App\VSCDeck.App.csproj -c Release -o .\artifacts\VSCDec
 ```
 
 The published application requires the .NET 10 Windows Desktop runtime.
-The SDK installed for this build is local to `%LOCALAPPDATA%\VSCDeck\dotnet`;
-its `dotnet.exe` can be used explicitly if `dotnet` on PATH has no SDK.
 The dependency-free test executable returns nonzero on assertion failure.
 The Windows test executable exercises actual desktop controls, mouse drag/drop,
 pixel sizing, hotkey conflict reporting, persistence, and native maximize/restore
@@ -190,3 +215,11 @@ The focused logging checks reproduce the original concurrent-write race and
 verify serialized writes, compatible readers, exclusive locks, and recovery.
 The SSH checks use a configured host to verify connection reuse, parallel
 response isolation, command error recovery, and owned-client cleanup.
+
+## Contributing, security, and license
+
+Contributions are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md) for the
+Microsoft Contributor License Agreement and Code of Conduct information.
+Please follow [SECURITY.md](SECURITY.md) when reporting security
+vulnerabilities rather than opening a public issue. VSC Deck is available
+under the [MIT License](LICENSE).
