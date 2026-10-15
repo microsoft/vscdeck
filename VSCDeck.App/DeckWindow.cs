@@ -24,6 +24,7 @@ public sealed class DeckWindow : Window
     internal const int RunningPulseCycleMilliseconds = 1200;
     internal const int BlipOnMilliseconds = 50;
     internal const int CompletionBlipCycleMilliseconds = 2000;
+    internal const int ForegroundCompletionBlipCount = 3;
     internal const int QuestionBlipCycleMilliseconds = 1500;
     internal static Color IdleLampColor { get; } = Color.FromRgb(10, 60, 30);
     internal static Color RunningLampColor { get; } = Color.FromRgb(14, 49, 112);
@@ -232,9 +233,13 @@ public sealed class DeckWindow : Window
                 snapshot.WorkspaceErrors.TryGetValue(workspace ?? "", out var error);
                 var status = WindowStatus.Aggregate(sessions, error,
                     workspace is not null && snapshot.AvailableWorkspaces.Contains(workspace));
-                tile.CompletionPending = UpdateCompletionPending(tile.CompletionPending,
+                var previousCompletion = tile.Completion;
+                var completion = UpdateCompletionPending(previousCompletion,
                     tile.Status.Activity, status.Activity,
-                    NativeWindows.GetForegroundWindow() == tile.Window.Handle);
+                    NativeWindows.GetForegroundWindow() == tile.Window.Handle, DateTimeOffset.Now);
+                tile.Completion = completion;
+                if (completion.ExpiresAt is { } expiresAt && previousCompletion.ExpiresAt != expiresAt)
+                    ScheduleCompletionExpiry(tile, expiresAt);
                 tile.Status = status;
             }
             if (oldSignature != string.Join("|", tiles.Select(t => $"{t.Window.Handle}:{t.Window.Identity}")) ||
@@ -257,7 +262,7 @@ public sealed class DeckWindow : Window
                     t.Window.OrderIdentity,
                     t.Window.StatusBarBackground,
                     Activity = t.Status.Activity.ToString(),
-                    t.CompletionPending,
+                    CompletionPending = t.Completion.Pending,
                     Hotkey = index < hotkeys.Count ? hotkeys[index].Label : "Unassigned",
                     Registered = hotkeyTargets.ContainsValue(t.Window.Handle),
                     PixelWidth = t.Button is null ? 0 : t.Button.ActualWidth * VisualTreeHelper.GetDpi(this).DpiScaleX,
@@ -476,7 +481,7 @@ public sealed class DeckWindow : Window
                 _ => Color.FromRgb(87, 94, 106)
             });
             SetRunningPulse(tile.Button, tile.Status.Activity == Activity.Running);
-            SetCompletionBlip(tile.Button, tile.CompletionPending);
+            SetCompletionBlip(tile.Button, tile.Completion.Pending);
             SetQuestionBlip(tile.Button, tile.Status.Activity == Activity.Question);
             SetFocusMarker(tile.Button, tile.Window.Handle == foreground, settings.ButtonSize, dpi);
             if (tile.ColorStripe is not null)
@@ -484,7 +489,7 @@ public sealed class DeckWindow : Window
             tile.Label.Foreground = Brushes.White;
             var active = tile.Status.Sessions.Where(s => s.Activity is Activity.Running or Activity.Question).ToArray();
             var stateText = GetStateText(tile.Status.Activity, settings.ButtonSize == 32,
-                tile.CompletionPending);
+                tile.Completion.Pending);
             if (settings.ButtonSize == 32)
                 tile.Label.Text = $"{index + 1}\n{stateText}{(active.Length > 1 ? active.Length.ToString() : "")}";
             else
@@ -676,9 +681,27 @@ public sealed class DeckWindow : Window
         glow.BeginAnimation(OpacityProperty, pulse);
     }
 
-    internal static bool UpdateCompletionPending(bool pending, Activity previous,
-        Activity current, bool isForeground) =>
-        !isForeground && (pending || previous == Activity.Running && current == Activity.Idle);
+    internal static CompletionIndicator UpdateCompletionPending(CompletionIndicator completion,
+        Activity previous, Activity current, bool isForeground, DateTimeOffset now)
+    {
+        if (completion.ExpiresAt is { } expiresAt && expiresAt <= now)
+            completion = default;
+        if (previous == Activity.Running && current == Activity.Idle)
+            return isForeground
+                ? new(true, now.AddMilliseconds(ForegroundCompletionBlipCount *
+                    CompletionBlipCycleMilliseconds))
+                : new(true, null);
+        return completion;
+    }
+
+    private async void ScheduleCompletionExpiry(Tile tile, DateTimeOffset expiresAt)
+    {
+        var delay = expiresAt - DateTimeOffset.Now;
+        if (delay > TimeSpan.Zero) await Task.Delay(delay);
+        if (closing || tile.Completion.ExpiresAt != expiresAt) return;
+        tile.Completion = default;
+        PaintTiles();
+    }
 
     internal static string WorkspaceDisplayName(CodeWindow window)
     {
@@ -728,10 +751,10 @@ public sealed class DeckWindow : Window
             Duration = TimeSpan.FromMilliseconds(cycleMilliseconds),
             RepeatBehavior = RepeatBehavior.Forever
         };
-        blip.KeyFrames.Add(new DiscreteDoubleKeyFrame(.95, KeyTime.FromTimeSpan(TimeSpan.Zero)));
-        blip.KeyFrames.Add(new DiscreteDoubleKeyFrame(0,
-            KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(BlipOnMilliseconds))));
-        blip.KeyFrames.Add(new DiscreteDoubleKeyFrame(0,
+        blip.KeyFrames.Add(new DiscreteDoubleKeyFrame(0, KeyTime.FromTimeSpan(TimeSpan.Zero)));
+        blip.KeyFrames.Add(new DiscreteDoubleKeyFrame(.95,
+            KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(cycleMilliseconds - BlipOnMilliseconds))));
+        blip.KeyFrames.Add(new DiscreteDoubleKeyFrame(.95,
             KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(cycleMilliseconds))));
         glow.BeginAnimation(OpacityProperty, blip);
     }
@@ -820,7 +843,7 @@ public sealed class DeckWindow : Window
     {
         var foreground = NativeWindows.GetForegroundWindow();
         var tile = tiles.Find(candidate => candidate.Window.Handle == foreground);
-        if (tile is not null) tile.CompletionPending = false;
+        if (tile is not null && tile.Completion.ExpiresAt is null) tile.Completion = default;
     }
 
     private void RegisterHotkeys()
@@ -1031,8 +1054,10 @@ public sealed class DeckWindow : Window
         public Button? Button { get; set; }
         public TextBlock? Label { get; set; }
         public Border? ColorStripe { get; set; }
-        public bool CompletionPending { get; set; }
+        public CompletionIndicator Completion { get; set; }
     }
+
+    internal readonly record struct CompletionIndicator(bool Pending, DateTimeOffset? ExpiresAt);
 
     private sealed class InsertionAdorner : Adorner
     {

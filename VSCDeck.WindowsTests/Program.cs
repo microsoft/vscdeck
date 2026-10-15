@@ -411,11 +411,19 @@ internal static class Program
                     button.Content is TextBlock { Foreground: SolidColorBrush textBrush } &&
                     textBrush.Color == Colors.White),
                 "Question buttons use white text against the dark amber lamp");
-            Check(DeckWindow.UpdateCompletionPending(false, VSCDeck.Core.Activity.Running, VSCDeck.Core.Activity.Idle, false) &&
-                DeckWindow.UpdateCompletionPending(true, VSCDeck.Core.Activity.Idle, VSCDeck.Core.Activity.Idle, false) &&
-                !DeckWindow.UpdateCompletionPending(true, VSCDeck.Core.Activity.Idle, VSCDeck.Core.Activity.Idle, true) &&
-                !DeckWindow.UpdateCompletionPending(false, VSCDeck.Core.Activity.Unknown, VSCDeck.Core.Activity.Idle, false),
-                "Completion blip latches only after running becomes idle and clears when its window gains focus");
+            var completionTime = DateTimeOffset.UtcNow;
+            var backgroundCompletion = DeckWindow.UpdateCompletionPending(default,
+                VSCDeck.Core.Activity.Running, VSCDeck.Core.Activity.Idle, false, completionTime);
+            var foregroundCompletion = DeckWindow.UpdateCompletionPending(default,
+                VSCDeck.Core.Activity.Running, VSCDeck.Core.Activity.Idle, true, completionTime);
+            Check(backgroundCompletion.Pending && backgroundCompletion.ExpiresAt is null &&
+                foregroundCompletion.Pending &&
+                foregroundCompletion.ExpiresAt == completionTime.AddMilliseconds(
+                    DeckWindow.ForegroundCompletionBlipCount *
+                    DeckWindow.CompletionBlipCycleMilliseconds) &&
+                !DeckWindow.UpdateCompletionPending(default, VSCDeck.Core.Activity.Unknown,
+                    VSCDeck.Core.Activity.Idle, false, completionTime).Pending,
+                "Completion latches in the background and shows three green blips in the foreground");
             Check(DeckWindow.GetStateText(VSCDeck.Core.Activity.Idle, true, true) == "Done" &&
                 DeckWindow.GetStateText(VSCDeck.Core.Activity.Idle, true, false) == "Idle" &&
                 DeckWindow.GetStateText(VSCDeck.Core.Activity.Idle, false, true) == "Done" &&
@@ -428,7 +436,7 @@ internal static class Program
                 idleButton.Template.FindName("CompletionGlow", idleButton) is Border
                     { HasAnimatedProperties: true, Background: RadialGradientBrush completionBrush } &&
                 completionBrush.GradientStops.Any(stop => stop.Color.G > stop.Color.R && stop.Color.G > stop.Color.B),
-                "Completed button uses a repeating 50-millisecond green blip with a 1.95-second off state");
+                "Completed button uses a repeating green blip during the final 50 milliseconds of each cycle");
             DeckWindow.SetCompletionBlip(idleButton, false);
             Check(idleButton.Template.FindName("CompletionGlow", idleButton) is Border
                     { HasAnimatedProperties: false, Opacity: 0 },
