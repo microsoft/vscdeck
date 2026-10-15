@@ -145,13 +145,89 @@ public static class Identity
         return parts[Math.Max(0, index)].Trim().TrimStart('\u25cf', '*').Trim();
     }
 
-    public static List<T> Sort<T>(IEnumerable<T> items, IReadOnlyList<string> saved, Func<T, string> key) =>
-        items.OrderBy(item =>
+    public static List<T> Sort<T>(IReadOnlyList<T> items, IReadOnlyList<RelativeOrder> relations,
+        Func<T, string> key)
+    {
+        var groups = items.Select((item, index) => new { item, index, Key = key(item) })
+            .GroupBy(entry => entry.Key, StringComparer.OrdinalIgnoreCase).ToArray();
+        var byKey = groups.ToDictionary(group => group.Key, StringComparer.OrdinalIgnoreCase);
+        var known = relations.SelectMany(relation => new[] { relation.Before, relation.After })
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var outgoing = groups.ToDictionary(group => group.Key, _ => new HashSet<string>(
+            StringComparer.OrdinalIgnoreCase), StringComparer.OrdinalIgnoreCase);
+        var incoming = groups.ToDictionary(group => group.Key, _ => 0, StringComparer.OrdinalIgnoreCase);
+        foreach (var relation in relations)
         {
-            var index = saved.ToList().FindIndex(id => id.Equals(key(item), StringComparison.OrdinalIgnoreCase));
-            return index < 0 ? int.MaxValue : index;
-        }).ToList();
+            if (!outgoing.TryGetValue(relation.Before, out var after) ||
+                !incoming.ContainsKey(relation.After) || !after.Add(relation.After))
+                continue;
+            incoming[relation.After]++;
+        }
+        var ready = new PriorityQueue<string, int>(incoming.Where(pair => pair.Value == 0)
+            .Select(pair => (pair.Key, SortPriority(pair.Key))));
+        var sorted = new List<T>();
+        var processed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        while (processed.Count < groups.Length)
+        {
+            if (!ready.TryDequeue(out var current, out _))
+                current = groups.Where(group => !processed.Contains(group.Key))
+                    .OrderBy(group => SortPriority(group.Key)).First().Key;
+            Process(current);
+        }
+        return sorted;
 
-    public static List<string> RememberOrder(IEnumerable<string> liveOrder, IEnumerable<string> saved) =>
-        liveOrder.Concat(saved).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        int SortPriority(string identity) =>
+            (known.Contains(identity) ? 0 : 1_000_000) + byKey[identity].First().index;
+
+        void Process(string current)
+        {
+            if (!processed.Add(current)) return;
+            sorted.AddRange(byKey[current].Select(entry => entry.item));
+            foreach (var next in outgoing[current])
+                if (--incoming[next] == 0) ready.Enqueue(next, SortPriority(next));
+        }
+    }
+
+    public static List<RelativeOrder> RelationsFor(IEnumerable<string> order)
+    {
+        var identities = order.Where(identity => identity.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        return identities.SelectMany((before, index) => identities.Skip(index + 1)
+                .Where(after => !before.Equals(after, StringComparison.OrdinalIgnoreCase))
+                .Select(after => new RelativeOrder(before, after)))
+            .Distinct(RelativeOrder.Comparer).ToList();
+    }
+
+    public static List<RelativeOrder> UpdateRelations(IReadOnlyList<RelativeOrder> existing,
+        IEnumerable<string> visibleOrder)
+    {
+        var visible = visibleOrder.Where(identity => identity.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        var known = existing.SelectMany(relation => new[] { relation.Before, relation.After })
+            .Concat(visible).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        var fullOrder = Sort(known, existing, identity => identity);
+        var visibleSlots = fullOrder.Select((identity, index) => (identity, index))
+            .Where(entry => visible.Contains(entry.identity, StringComparer.OrdinalIgnoreCase))
+            .Select(entry => entry.index).ToArray();
+
+        for (var index = 0; index < visibleSlots.Length; index++)
+            fullOrder[visibleSlots[index]] = visible[index];
+        return RelationsFor(fullOrder);
+    }
+}
+
+public sealed record RelativeOrder(string Before, string After)
+{
+    public static IEqualityComparer<RelativeOrder> Comparer { get; } = new RelativeOrderComparer();
+
+    private sealed class RelativeOrderComparer : IEqualityComparer<RelativeOrder>
+    {
+        public bool Equals(RelativeOrder? left, RelativeOrder? right) =>
+            left is not null && right is not null &&
+            left.Before.Equals(right.Before, StringComparison.OrdinalIgnoreCase) &&
+            left.After.Equals(right.After, StringComparison.OrdinalIgnoreCase);
+        public int GetHashCode(RelativeOrder value) =>
+            HashCode.Combine(StringComparer.OrdinalIgnoreCase.GetHashCode(value.Before),
+                StringComparer.OrdinalIgnoreCase.GetHashCode(value.After));
+    }
 }

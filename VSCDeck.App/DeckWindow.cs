@@ -221,7 +221,7 @@ public sealed class DeckWindow : Window
                 if (existing is null) tiles.Add(new Tile(window));
                 else existing.Window = window;
             }
-            var sorted = Identity.Sort(tiles, settings.Order, t => t.Window.Identity);
+            var sorted = Identity.Sort(tiles, settings.RelativeOrder, t => t.Window.OrderIdentity);
             tiles.Clear();
             tiles.AddRange(sorted);
             foreach (var tile in tiles)
@@ -254,6 +254,7 @@ public sealed class DeckWindow : Window
                 {
                     Position = index + 1, Handle = t.Window.Handle.ToInt64(), t.Window.ProcessId,
                     t.Window.Project, t.Window.Workspace, Identity = t.Window.Identity,
+                    t.Window.OrderIdentity,
                     t.Window.StatusBarBackground,
                     Activity = t.Status.Activity.ToString(),
                     t.CompletionPending,
@@ -409,7 +410,8 @@ public sealed class DeckWindow : Window
         var moving = tiles[from];
         tiles.RemoveAt(from);
         tiles.Insert(to, moving);
-        settings.Order = Identity.RememberOrder(tiles.Select(tile => tile.Window.Identity), settings.Order);
+        settings.RelativeOrder = Identity.UpdateRelations(settings.RelativeOrder,
+            tiles.Select(tile => tile.Window.OrderIdentity));
         SaveSettings();
         BuildTiles();
         RegisterHotkeys();
@@ -1000,7 +1002,6 @@ public sealed class DeckWindow : Window
     {
         settings.Left = Left;
         settings.Top = Top;
-        settings.Order = Identity.RememberOrder(tiles.Select(t => t.Window.Identity), settings.Order);
         SaveSettings();
     }
 

@@ -134,6 +134,8 @@ internal static class Program
                 "Window does not snap beyond the eight-pixel threshold");
             var saved = AppStorage.Load();
             saved.ButtonSize = 30;
+            saved.Order = ["first", "second", "third"];
+            saved.RelativeOrder = [];
             saved.UseNotificationArea = true;
             saved.StartWithWindows = true;
             AppStorage.Save(saved);
@@ -141,12 +143,13 @@ internal static class Program
             Check(migrated.ButtonSize == 32 && AppStorage.Load().ButtonSize == 32,
                 "Legacy 30-pixel size migrates persistently to 32");
             Check(migrated.Order.SequenceEqual(saved.Order) && migrated.Hotkeys == saved.Hotkeys &&
+                migrated.RelativeOrder.SequenceEqual(Identity.RelationsFor(saved.Order), RelativeOrder.Comparer) &&
                 migrated.RemoteSources.Select(s => s.Identity).SequenceEqual(saved.RemoteSources.Select(s => s.Identity)) &&
                 migrated.SnapToScreenEdges == saved.SnapToScreenEdges &&
                 migrated.UseNotificationArea == saved.UseNotificationArea &&
                 migrated.StartWithWindows == saved.StartWithWindows &&
                 migrated.Left == saved.Left && migrated.Top == saved.Top,
-                "Size migration preserves order, hotkeys, sources, startup, tray, snapping, and position");
+                "Settings migration preserves order, hotkeys, sources, startup, tray, snapping, and position");
             var discovery = RemoteSourceDiscovery.Discover().GetAwaiter().GetResult();
             foreach (var warning in discovery.Warnings) Console.WriteLine(warning);
             var devContainerWindows = NativeWindows.Discover()
@@ -588,7 +591,8 @@ internal static class Program
             if (args.Length > 0) Screenshot(deck, Path.Combine(args[0], "panel-64.png"));
             deck.Close();
 
-            var compactSettings = new Settings { ButtonSize = 32, Left = 200, Top = 180, Order = settings.Order,
+            var compactSettings = new Settings { ButtonSize = 32, Left = 200, Top = 180,
+                RelativeOrder = settings.RelativeOrder,
                 RemoteSources = configured };
             var compact = new DeckWindow(compactSettings);
             testWindows.Add(compact);
@@ -632,7 +636,7 @@ internal static class Program
             Check(Math.Abs(moveGrip.ActualWidth * dpi.DpiScaleX - 16) < .1 &&
                 Math.Abs(moveGrip.ActualHeight - compact.ActualHeight) < .1,
                 "Compact drag handle is 16 physical pixels wide and spans the full window height");
-            if (settings.Order.Count > 0)
+            if (settings.RelativeOrder.Count > 0)
                 Check(System.Windows.Automation.AutomationProperties.GetName(compactButtons[0]) ==
                     System.Windows.Automation.AutomationProperties.GetName(tileButtons[0]), "Restart reconstructs reordered window positions");
             if (args.Length > 0) Screenshot(compact, Path.Combine(args[0], "panel-32.png"));

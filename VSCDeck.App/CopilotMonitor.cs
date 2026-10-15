@@ -83,7 +83,8 @@ internal sealed class CopilotMonitor : IDisposable
             {
                 var identity = matchingRemote[0].Identity;
                 remote.StatusBarBackgrounds.TryGetValue(identity, out var remoteStatusBarBackground);
-                return window with { Workspace = identity, StatusBarBackground = remoteStatusBarBackground };
+                return window with { Workspace = identity, ProjectIdentity = matchingRemote[0].OrderIdentity,
+                    StatusBarBackground = remoteStatusBarBackground };
             }
             if (matchingRemote.Length > 1)
             {
@@ -108,7 +109,8 @@ internal sealed class CopilotMonitor : IDisposable
                     LogOnce(warning);
                 }
             }
-            return window with { Workspace = selected, StatusBarBackground = statusBarBackground };
+            return window with { Workspace = selected, ProjectIdentity = selected,
+                StatusBarBackground = statusBarBackground };
         }).ToList();
         return new(windows, sessions, workspaceErrors, warnings,
             AvailableWorkspaces(livePaths, remote.Available));

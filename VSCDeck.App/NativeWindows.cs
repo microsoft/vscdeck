@@ -10,6 +10,8 @@ namespace VSCDeck.App;
 public sealed record CodeWindow(nint Handle, int ProcessId, string Title, string Project, string? Workspace)
 {
     public string Identity => Workspace ?? "title:" + Project.ToLowerInvariant();
+    public string? ProjectIdentity { get; init; }
+    public string OrderIdentity => ProjectIdentity ?? Identity;
     public string? StatusBarBackground { get; init; }
 }
 

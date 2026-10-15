@@ -1,5 +1,6 @@
 using System.IO;
 using System.Text.Json;
+using VSCDeck.Core;
 
 namespace VSCDeck.App;
 
@@ -9,6 +10,7 @@ public sealed class Settings
     public string Hotkeys { get; set; } =
         "Ctrl+Shift+1, Ctrl+Shift+2, Ctrl+Shift+3, Ctrl+Shift+4, Ctrl+Shift+5, Ctrl+Shift+6, Ctrl+Shift+7, Ctrl+Shift+8, Ctrl+Shift+9, Ctrl+Shift+0";
     public List<string> Order { get; set; } = [];
+    public List<RelativeOrder> RelativeOrder { get; set; } = [];
     public List<RemoteSource> RemoteSources { get; set; } = [];
     public bool SnapToScreenEdges { get; set; } = true;
     public bool UseNotificationArea { get; set; }
@@ -37,13 +39,17 @@ public static class AppStorage
         if (migrateSize) settings.ButtonSize = 32;
         if (settings.ButtonSize is not (32 or 64))
             throw new JsonException("ButtonSize must be 32 or 64.");
-        if (settings.Order is null || settings.Hotkeys is null || settings.RemoteSources is null)
-            throw new JsonException("Order, Hotkeys, and RemoteSources cannot be null.");
+        if (settings.Order is null || settings.RelativeOrder is null || settings.Hotkeys is null ||
+            settings.RemoteSources is null)
+            throw new JsonException("Order, RelativeOrder, Hotkeys, and RemoteSources cannot be null.");
         foreach (var remote in settings.RemoteSources) remote.Validate();
         if (settings.RemoteSources.Select(s => s.Identity).Distinct(StringComparer.OrdinalIgnoreCase).Count() != settings.RemoteSources.Count)
             throw new FormatException("Each remote workspace source must be unique.");
         _ = Core.Hotkey.ParseList(settings.Hotkeys);
-        if (migrateSize) Save(settings);
+        var migrateOrder = settings.RelativeOrder.Count == 0 && settings.Order.Count > 1;
+        if (migrateOrder)
+            settings.RelativeOrder = Identity.RelationsFor(settings.Order);
+        if (migrateSize || migrateOrder) Save(settings);
         return settings;
     }
 

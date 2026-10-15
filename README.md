@@ -66,7 +66,10 @@ button returns to Large view.
   positions before the first and after the last button. The marker is hidden
   when dropping would leave the button in its current position. **Compact**
   view hides these grips. Hotkeys follow positions, not projects. New windows
-  are added in discovery order.
+  are added in discovery order. Ordering is stored as before/after workspace
+  relationships, so it survives temporarily closed workspaces. A local folder
+  and its local Docker Dev Container view retain the same project position but
+  remain separate buttons when both are open.
 - Drag the title grip to move the always-on-top panel.
 - When **Snap to screen edges** is enabled in Settings, moving the panel within
   eight physical pixels of any monitor edge snaps it to that edge. Snapping is
@@ -175,6 +178,7 @@ restarting **only VSC Deck**. For example:
 {
   "Project": "my-project",
   "Workspace": "/home/developer/work/my-project",
+  "ProjectIdentity": "c:\\source\\my-project",
   "SshHost": "my-docker-host",
   "SessionRoot": "/home/vscode/.copilot/session-state"
 }
@@ -183,6 +187,11 @@ restarting **only VSC Deck**. For example:
 For local Docker Desktop, omit `SshHost`, set `DockerContext` to `desktop-linux`,
 and use the exact Windows directory label as `Workspace` (escaping backslashes
 in JSON). `SessionRoot` is the absolute Linux path **inside** the container.
+Local Docker sources automatically use their host workspace path as the
+project identity for ordering. For an SSH-hosted project that also has a local
+view, optionally set `ProjectIdentity` to a shared canonical path as shown
+above; this preserves its position across those environments without merging
+their separate buttons.
 New, unconfigured windows still appear immediately with buttons and hotkeys,
 but show unknown if no supported local source can be associated.
 

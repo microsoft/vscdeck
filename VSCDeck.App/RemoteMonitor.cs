@@ -10,14 +10,20 @@ public sealed class RemoteSource
     public string Workspace { get; set; } = "";
     public string DockerContext { get; set; } = "desktop-linux";
     public string? SshHost { get; set; }
+    public string? ProjectIdentity { get; set; }
     public string SessionRoot { get; set; } = "/home/vscode/.copilot/session-state";
     [System.Text.Json.Serialization.JsonIgnore]
     public string Identity => "docker:" + (SshHost ?? DockerContext).ToLowerInvariant() + ":" + Core.Identity.NormalizePath(Workspace);
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string OrderIdentity => string.IsNullOrWhiteSpace(ProjectIdentity)
+        ? SshHost is null ? Core.Identity.NormalizePath(Workspace) : Identity
+        : Core.Identity.NormalizePath(ProjectIdentity);
 
     public void Validate()
     {
         if (string.IsNullOrWhiteSpace(Project) || string.IsNullOrWhiteSpace(Workspace) ||
             string.IsNullOrWhiteSpace(DockerContext) || string.IsNullOrWhiteSpace(SessionRoot) || !SessionRoot.StartsWith('/') ||
+            (ProjectIdentity is not null && string.IsNullOrWhiteSpace(ProjectIdentity)) ||
             (SshHost is not null && (SshHost.Length == 0 || SshHost.StartsWith('-') ||
                 SshHost.Any(c => !char.IsAsciiLetterOrDigit(c) && c is not ('.' or '-' or '_' or '@')))))
             throw new FormatException("Invalid remote source. Specify a project, workspace label, Docker context, absolute session root, and valid SSH host.");

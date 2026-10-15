@@ -85,9 +85,23 @@ Check(Identity.ProjectFromTitle("file.cs - Project - Visual Studio Code") == "Pr
 Check(Identity.ProjectFromTitle("Project - Visual Studio Code") == "Project", "Workspace extracted from simple title");
 Check(Identity.ProjectFromTitle("Project - Visual Studio Code - Insiders") == "Project", "Insiders title parsing");
 Check(Identity.ProjectFromTitle("Visual Studio Code") == "VS Code", "Empty VS Code window identity");
-Check(Identity.Sort(new[] { "c", "a", "b", "d" }, new[] { "b", "a" }, s => s).SequenceEqual(["b", "a", "c", "d"]), "Saved order restores; new windows retain discovery order");
-Check(Identity.RememberOrder(["b", "a"], ["a", "closed", "b"]).SequenceEqual(["b", "a", "closed"]), "Reordered and closed identities persist");
-Check(Identity.Sort(new[] { "B", "a" }, ["a", "b"], s => s).SequenceEqual(["a", "B"]), "Windows identity matching ignores case");
+var relations = Identity.RelationsFor(["juno58", "juno57", "juno56"]);
+Check(Identity.Sort(["juno56", "juno58"], relations, item => item).SequenceEqual(["juno58", "juno56"]),
+    "Relative ordering survives a missing workspace");
+Check(Identity.Sort(["new", "juno56", "juno58", "juno57"], relations, item => item)
+    .SequenceEqual(["juno58", "juno57", "juno56", "new"]),
+    "Relative ordering appends new workspaces after known workspaces");
+Check(Identity.Sort(["B", "a"], Identity.RelationsFor(["a", "b"]), item => item)
+    .SequenceEqual(["a", "B"]), "Relative ordering ignores identity case");
+Check(Identity.Sort(["container", "local", "other"], Identity.RelationsFor(["shared", "other"]),
+        item => item == "other" ? item : "shared").SequenceEqual(["container", "local", "other"]),
+    "Separate windows sharing a project identity remain adjacent");
+Check(Identity.Sort(["b", "a"], [new("a", "b"), new("b", "a")], item => item)
+    .SequenceEqual(["b", "a"]), "Conflicting relative ordering remains deterministic");
+var updatedRelations = Identity.UpdateRelations(relations, ["juno56", "juno58"]);
+Check(Identity.Sort(["juno56", "juno58", "juno57"], updatedRelations, item => item)
+    .SequenceEqual(["juno56", "juno57", "juno58"]),
+    "Reordering visible workspaces retains the placement of a closed workspace");
 
 Check(Hotkey.Parse("Ctrl+Shift+1") is { Modifiers: 6, Key: 49 }, "Default Ctrl+Shift hotkey registration values");
 Check(Hotkey.Parse("Win+Shift+F24") is { Modifiers: 12, Key: 135 }, "Function-key and modifier mapping");
