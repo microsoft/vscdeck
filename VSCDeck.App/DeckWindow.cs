@@ -23,6 +23,7 @@ public sealed class DeckWindow : Window
     private const int SnapThresholdPixels = 8;
     internal const int RunningPulseCycleMilliseconds = 1200;
     internal const int BlipOnMilliseconds = 50;
+    internal const int MaximumBlipJitterMilliseconds = 50;
     internal const int CompletionBlipCycleMilliseconds = 2000;
     internal const int ForegroundCompletionBlipCount = 3;
     internal const int QuestionBlipCycleMilliseconds = 1500;
@@ -240,6 +241,7 @@ public sealed class DeckWindow : Window
                 tile.Completion = completion;
                 if (completion.ExpiresAt is { } expiresAt && previousCompletion.ExpiresAt != expiresAt)
                     ScheduleCompletionExpiry(tile, expiresAt);
+                tile.Question = UpdateQuestionIndicator(tile.Question, tile.Status.Activity, status.Activity);
                 tile.Status = status;
             }
             if (oldSignature != string.Join("|", tiles.Select(t => $"{t.Window.Handle}:{t.Window.Identity}")) ||
@@ -481,8 +483,8 @@ public sealed class DeckWindow : Window
                 _ => Color.FromRgb(87, 94, 106)
             });
             SetRunningPulse(tile.Button, tile.Status.Activity == Activity.Running);
-            SetCompletionBlip(tile.Button, tile.Completion.Pending);
-            SetQuestionBlip(tile.Button, tile.Status.Activity == Activity.Question);
+            SetCompletionBlip(tile.Button, tile.Completion);
+            SetQuestionBlip(tile.Button, tile.Question);
             SetFocusMarker(tile.Button, tile.Window.Handle == foreground, settings.ButtonSize, dpi);
             if (tile.ColorStripe is not null)
                 tile.ColorStripe.Background = ColorStripeBrush(tile.Window.StatusBarBackground);
@@ -681,18 +683,29 @@ public sealed class DeckWindow : Window
         glow.BeginAnimation(OpacityProperty, pulse);
     }
 
-    internal static CompletionIndicator UpdateCompletionPending(CompletionIndicator completion,
+    internal static AttentionIndicator UpdateCompletionPending(AttentionIndicator completion,
         Activity previous, Activity current, bool isForeground, DateTimeOffset now)
     {
         if (completion.ExpiresAt is { } expiresAt && expiresAt <= now)
             completion = default;
         if (previous == Activity.Running && current == Activity.Idle)
+        {
+            var jitter = CreateBlipJitter();
             return isForeground
-                ? new(true, now.AddMilliseconds(ForegroundCompletionBlipCount *
-                    CompletionBlipCycleMilliseconds))
-                : new(true, null);
+                ? new(true, jitter, now.AddMilliseconds(ForegroundCompletionBlipCount *
+                    CompletionBlipCycleMilliseconds + jitter))
+                : new(true, jitter);
+        }
         return completion;
     }
+
+    internal static AttentionIndicator UpdateQuestionIndicator(AttentionIndicator question,
+        Activity previous, Activity current) =>
+        current == Activity.Question
+            ? previous == Activity.Question ? question : new(true, CreateBlipJitter())
+            : default;
+
+    internal static int CreateBlipJitter() => Random.Shared.Next(MaximumBlipJitterMilliseconds + 1);
 
     private async void ScheduleCompletionExpiry(Tile tile, DateTimeOffset expiresAt)
     {
@@ -728,19 +741,19 @@ public sealed class DeckWindow : Window
             _ => compact ? "?" : "Unknown"
         };
 
-    internal static void SetCompletionBlip(Button button, bool enabled)
-        => SetAttentionBlip(button, "CompletionGlow", enabled, CompletionBlipCycleMilliseconds);
+    internal static void SetCompletionBlip(Button button, AttentionIndicator indicator)
+        => SetAttentionBlip(button, "CompletionGlow", indicator, CompletionBlipCycleMilliseconds);
 
-    internal static void SetQuestionBlip(Button button, bool enabled)
-        => SetAttentionBlip(button, "QuestionGlow", enabled, QuestionBlipCycleMilliseconds);
+    internal static void SetQuestionBlip(Button button, AttentionIndicator indicator)
+        => SetAttentionBlip(button, "QuestionGlow", indicator, QuestionBlipCycleMilliseconds);
 
-    private static void SetAttentionBlip(Button button, string elementName, bool enabled,
+    private static void SetAttentionBlip(Button button, string elementName, AttentionIndicator indicator,
         int cycleMilliseconds)
     {
         button.ApplyTemplate();
         if (button.Template.FindName(elementName, button) is not Border glow) return;
-        if (enabled == glow.HasAnimatedProperties) return;
-        if (!enabled)
+        if (indicator.Pending == glow.HasAnimatedProperties) return;
+        if (!indicator.Pending)
         {
             glow.BeginAnimation(OpacityProperty, null);
             glow.Opacity = 0;
@@ -748,6 +761,7 @@ public sealed class DeckWindow : Window
         }
         var blip = new DoubleAnimationUsingKeyFrames
         {
+            BeginTime = TimeSpan.FromMilliseconds(indicator.InitialJitterMilliseconds),
             Duration = TimeSpan.FromMilliseconds(cycleMilliseconds),
             RepeatBehavior = RepeatBehavior.Forever
         };
@@ -1054,10 +1068,12 @@ public sealed class DeckWindow : Window
         public Button? Button { get; set; }
         public TextBlock? Label { get; set; }
         public Border? ColorStripe { get; set; }
-        public CompletionIndicator Completion { get; set; }
+        public AttentionIndicator Completion { get; set; }
+        public AttentionIndicator Question { get; set; }
     }
 
-    internal readonly record struct CompletionIndicator(bool Pending, DateTimeOffset? ExpiresAt);
+    internal readonly record struct AttentionIndicator(bool Pending, int InitialJitterMilliseconds,
+        DateTimeOffset? ExpiresAt = null);
 
     private sealed class InsertionAdorner : Adorner
     {

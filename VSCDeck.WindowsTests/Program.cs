@@ -417,60 +417,69 @@ internal static class Program
             var foregroundCompletion = DeckWindow.UpdateCompletionPending(default,
                 VSCDeck.Core.Activity.Running, VSCDeck.Core.Activity.Idle, true, completionTime);
             Check(backgroundCompletion.Pending && backgroundCompletion.ExpiresAt is null &&
+                backgroundCompletion.InitialJitterMilliseconds is >= 0 and <= DeckWindow.MaximumBlipJitterMilliseconds &&
                 foregroundCompletion.Pending &&
                 foregroundCompletion.ExpiresAt == completionTime.AddMilliseconds(
-                    DeckWindow.ForegroundCompletionBlipCount *
-                    DeckWindow.CompletionBlipCycleMilliseconds) &&
+                    DeckWindow.ForegroundCompletionBlipCount * DeckWindow.CompletionBlipCycleMilliseconds +
+                    foregroundCompletion.InitialJitterMilliseconds) &&
+                foregroundCompletion.InitialJitterMilliseconds is >= 0 and <= DeckWindow.MaximumBlipJitterMilliseconds &&
                 !DeckWindow.UpdateCompletionPending(default, VSCDeck.Core.Activity.Unknown,
                     VSCDeck.Core.Activity.Idle, false, completionTime).Pending,
-                "Completion latches in the background and shows three green blips in the foreground");
+                "Completion latches with a one-time jitter and shows three green blips in the foreground");
+            var question = DeckWindow.UpdateQuestionIndicator(default, VSCDeck.Core.Activity.Running,
+                VSCDeck.Core.Activity.Question);
+            Check(question.Pending &&
+                question.InitialJitterMilliseconds is >= 0 and <= DeckWindow.MaximumBlipJitterMilliseconds &&
+                DeckWindow.UpdateQuestionIndicator(question, VSCDeck.Core.Activity.Question,
+                    VSCDeck.Core.Activity.Question) == question,
+                "Question transitions receive one jittered blip offset");
             Check(DeckWindow.GetStateText(VSCDeck.Core.Activity.Idle, true, true) == "Done" &&
                 DeckWindow.GetStateText(VSCDeck.Core.Activity.Idle, true, false) == "Idle" &&
                 DeckWindow.GetStateText(VSCDeck.Core.Activity.Idle, false, true) == "Done" &&
                 DeckWindow.GetStateText(VSCDeck.Core.Activity.Running, false, false) == "Run",
                 "Completion labels say Done until focus acknowledgement and large running labels say Run");
             var idleButton = tileButtons.First(button => button != runningButton);
-            DeckWindow.SetCompletionBlip(idleButton, true);
+            DeckWindow.SetCompletionBlip(idleButton, new(true, 0));
             Check(DeckWindow.BlipOnMilliseconds == 50 &&
                 DeckWindow.CompletionBlipCycleMilliseconds == 2000 &&
                 idleButton.Template.FindName("CompletionGlow", idleButton) is Border
                     { HasAnimatedProperties: true, Background: RadialGradientBrush completionBrush } &&
                 completionBrush.GradientStops.Any(stop => stop.Color.G > stop.Color.R && stop.Color.G > stop.Color.B),
                 "Completed button uses a repeating green blip during the final 50 milliseconds of each cycle");
-            DeckWindow.SetCompletionBlip(idleButton, false);
+            DeckWindow.SetCompletionBlip(idleButton, default);
             Check(idleButton.Template.FindName("CompletionGlow", idleButton) is Border
                     { HasAnimatedProperties: false, Opacity: 0 },
                 "Acknowledging completion removes the green blip");
-            DeckWindow.SetQuestionBlip(idleButton, true);
+            DeckWindow.SetQuestionBlip(idleButton, new(true, 0));
             Check(DeckWindow.QuestionBlipCycleMilliseconds == 1500 &&
                 idleButton.Template.FindName("QuestionGlow", idleButton) is Border
                     { HasAnimatedProperties: true, Background: RadialGradientBrush questionBrush } &&
                 questionBrush.GradientStops.Any(stop => stop.Color.R > stop.Color.B && stop.Color.G > stop.Color.B),
                 "Question button uses its own repeating 50-millisecond yellow blip");
-            DeckWindow.SetQuestionBlip(idleButton, false);
+            DeckWindow.SetQuestionBlip(idleButton, default);
             Check(idleButton.Template.FindName("QuestionGlow", idleButton) is Border
                     { HasAnimatedProperties: false, Opacity: 0 },
                 "Resolving a question removes its yellow blip");
             var independentlyBlippingButtons = tileButtons.Where(button => button != runningButton).Take(2).ToArray();
             foreach (var button in independentlyBlippingButtons)
             {
-                DeckWindow.SetCompletionBlip(button, false);
-                DeckWindow.SetQuestionBlip(button, false);
+                DeckWindow.SetCompletionBlip(button, default);
+                DeckWindow.SetQuestionBlip(button, default);
             }
-            DeckWindow.SetCompletionBlip(independentlyBlippingButtons[0], true);
+            DeckWindow.SetCompletionBlip(independentlyBlippingButtons[0], new(true, 0));
             Check(independentlyBlippingButtons[0].Template.FindName("CompletionGlow",
                     independentlyBlippingButtons[0]) is Border { HasAnimatedProperties: true } &&
                 independentlyBlippingButtons[1].Template.FindName("QuestionGlow",
                     independentlyBlippingButtons[1]) is Border { HasAnimatedProperties: false },
                 "Starting one button's blip does not start another button's cycle");
-            DeckWindow.SetQuestionBlip(independentlyBlippingButtons[1], true);
+            DeckWindow.SetQuestionBlip(independentlyBlippingButtons[1], new(true, 0));
             Check(independentlyBlippingButtons[0].Template.FindName("CompletionGlow",
                     independentlyBlippingButtons[0]) is Border { HasAnimatedProperties: true } &&
                 independentlyBlippingButtons[1].Template.FindName("QuestionGlow",
                     independentlyBlippingButtons[1]) is Border { HasAnimatedProperties: true },
                 "Each button starts its blip cycle independently when its event is detected");
-            DeckWindow.SetCompletionBlip(independentlyBlippingButtons[0], false);
-            DeckWindow.SetQuestionBlip(independentlyBlippingButtons[1], false);
+            DeckWindow.SetCompletionBlip(independentlyBlippingButtons[0], default);
+            DeckWindow.SetQuestionBlip(independentlyBlippingButtons[1], default);
             Check(tileButtons.All(b => b.Background is LinearGradientBrush { GradientStops.Count: 4 } &&
                 b.Template.FindName("GlassSheen", b) is Border { CornerRadius.TopLeft: > 0 }),
                 "Large buttons have rounded glass surfaces, state gradients, and a separate sheen");
