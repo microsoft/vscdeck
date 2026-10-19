@@ -9,9 +9,16 @@ internal sealed record RemoteDiscoveryResult(IReadOnlyList<RemoteSource> Sources
 
 internal static partial class RemoteSourceDiscovery
 {
-    public static async Task<RemoteDiscoveryResult> Discover()
+    internal static List<RemoteSource> MergeSources(
+        IEnumerable<RemoteSource> configured, IEnumerable<RemoteSource> discovered) =>
+        configured.Concat(discovered)
+            .GroupBy(source => source.Identity, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.First()).ToList();
+
+    public static Task<RemoteDiscoveryResult> Discover() => Discover(NativeWindows.Discover());
+
+    internal static async Task<RemoteDiscoveryResult> Discover(IReadOnlyCollection<CodeWindow> windows)
     {
-        var windows = NativeWindows.Discover();
         var hosts = windows.Select(WindowHost).Where(host => host is not null)
             .Select(host => host!).ToHashSet(StringComparer.OrdinalIgnoreCase);
         if (hosts.Count == 0) return new([], []);
@@ -145,7 +152,7 @@ internal static partial class RemoteSourceDiscovery
         return user == "root" ? "/root/.copilot/session-state" : $"/home/{user}/.copilot/session-state";
     }
 
-    private static string? WindowHost(CodeWindow window)
+    internal static string? WindowHost(CodeWindow window)
     {
         var match = DevContainerHost().Match(window.Project);
         return match.Success ? match.Groups[1].Value : null;
@@ -153,4 +160,58 @@ internal static partial class RemoteSourceDiscovery
 
     [GeneratedRegex(@"\[Dev Container: .+ @ ([^\]]+)\]$", RegexOptions.IgnoreCase)]
     private static partial Regex DevContainerHost();
+}
+
+internal sealed class RuntimeSourceDiscovery
+{
+    internal static readonly TimeSpan RetryInterval = TimeSpan.FromSeconds(30);
+    private readonly Func<IReadOnlyCollection<CodeWindow>, Task<RemoteDiscoveryResult>> discover;
+    private Task<RemoteDiscoveryResult>? pending;
+    private HashSet<string> attempted = new(StringComparer.OrdinalIgnoreCase);
+    private DateTimeOffset retryAt;
+    private IReadOnlyList<string> warnings = [];
+
+    internal RuntimeSourceDiscovery(
+        Func<IReadOnlyCollection<CodeWindow>, Task<RemoteDiscoveryResult>>? discover = null) =>
+        this.discover = discover ?? RemoteSourceDiscovery.Discover;
+
+    internal RemoteDiscoveryResult Poll(IReadOnlyCollection<CodeWindow> windows,
+        IReadOnlyCollection<RemoteSource> configured, DateTimeOffset now)
+    {
+        IReadOnlyList<RemoteSource> added = [];
+        if (pending is { IsCompleted: true })
+        {
+            var completed = pending;
+            pending = null;
+            retryAt = now + RetryInterval;
+            try
+            {
+                var result = completed.GetAwaiter().GetResult();
+                added = result.Sources.Where(source => windows.Any(source.Matches) &&
+                    !configured.Any(existing => existing.Identity.Equals(source.Identity,
+                        StringComparison.OrdinalIgnoreCase))).ToArray();
+                warnings = result.Warnings;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or
+                FormatException or Win32Exception or InvalidOperationException or OperationCanceledException)
+            {
+                var warning = $"Runtime source discovery: {ex.Message}";
+                warnings = [warning];
+                AppStorage.Log(warning);
+            }
+        }
+        var targets = windows.Where(window => RemoteSourceDiscovery.WindowHost(window) is not null &&
+            !configured.Concat(added).Any(source => source.Matches(window))).ToArray();
+        if (targets.Length == 0)
+        {
+            warnings = [];
+            attempted.Clear();
+        }
+        else if (pending is null && (now >= retryAt || targets.Any(window => !attempted.Contains(window.Project))))
+        {
+            attempted = targets.Select(window => window.Project).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            pending = discover(targets);
+        }
+        return new(added, warnings);
+    }
 }

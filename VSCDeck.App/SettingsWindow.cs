@@ -69,9 +69,7 @@ public sealed class SettingsWindow : Window
             try
             {
                 var result = await RemoteSourceDiscovery.Discover();
-                remoteSources = result.Sources.Concat(remoteSources)
-                    .GroupBy(source => source.Identity, StringComparer.OrdinalIgnoreCase)
-                    .Select(group => group.First()).ToList();
+                remoteSources = RemoteSourceDiscovery.MergeSources(remoteSources, result.Sources);
                 sourceStatus.Text = SourceStatusText(result.Sources.Count, result.Warnings);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or

@@ -6,12 +6,16 @@ using VSCDeck.Core;
 namespace VSCDeck.App;
 
 public sealed record MonitorSnapshot(List<CodeWindow> Windows, List<SessionStatus> Sessions,
-    Dictionary<string, string> WorkspaceErrors, List<string> Warnings, HashSet<string> AvailableWorkspaces);
+    Dictionary<string, string> WorkspaceErrors, List<string> Warnings, HashSet<string> AvailableWorkspaces)
+{
+    public IReadOnlyList<RemoteSource> RemoteSources { get; init; } = [];
+}
 
 internal sealed class CopilotMonitor : IDisposable
 {
     private readonly RemoteMonitor remoteMonitor;
     private readonly List<RemoteSource> remoteSources;
+    private readonly RuntimeSourceDiscovery discovery = new();
 
     public CopilotMonitor(IEnumerable<RemoteSource>? sources = null)
     {
@@ -72,6 +76,10 @@ internal sealed class CopilotMonitor : IDisposable
         }
         ReadIdePaths(paths, livePaths, warnings);
         var discoveredWindows = NativeWindows.Discover();
+        var discovered = discovery.Poll(discoveredWindows, remoteSources, DateTimeOffset.UtcNow);
+        remoteSources.AddRange(discovered.Sources);
+        remoteMonitor.AddSources(discovered.Sources);
+        warnings.AddRange(discovered.Warnings);
         var remote = remoteMonitor.Scan(discoveredWindows);
         sessions.AddRange(remote.Sessions);
         warnings.AddRange(remote.Warnings);
@@ -113,7 +121,7 @@ internal sealed class CopilotMonitor : IDisposable
                 StatusBarBackground = statusBarBackground };
         }).ToList();
         return new(windows, sessions, workspaceErrors, warnings,
-            AvailableWorkspaces(livePaths, remote.Available));
+            AvailableWorkspaces(livePaths, remote.Available)) { RemoteSources = remoteSources.ToArray() };
     }
 
     internal static HashSet<string> AvailableWorkspaces(

@@ -44,19 +44,32 @@ internal sealed class RemoteMonitor : IDisposable
     private bool disposed;
     public RemoteMonitor(IEnumerable<RemoteSource> sources)
     {
-        readers = sources.Select(source =>
+        readers = [];
+        AddSources(sources);
+    }
+
+    internal void AddSources(IEnumerable<RemoteSource> sources)
+    {
+        lock (channels)
         {
-            SshCommandChannel? channel = null;
-            if (source.SshHost is { } host && !channels.TryGetValue(host, out channel))
-                channels[host] = channel = new SshCommandChannel(host);
-            return new Reader(source, channel);
-        }).ToList();
+            if (disposed) return;
+            foreach (var source in sources)
+            {
+                SshCommandChannel? channel = null;
+                if (source.SshHost is { } host && !channels.TryGetValue(host, out channel))
+                    channels[host] = channel = new SshCommandChannel(host);
+                readers.Add(new Reader(source, channel));
+            }
+        }
     }
 
     public void Dispose()
     {
-        disposed = true;
-        foreach (var channel in channels.Values) channel.Dispose();
+        lock (channels)
+        {
+            disposed = true;
+            foreach (var channel in channels.Values) channel.Dispose();
+        }
     }
 
     public RemoteSnapshot Scan(IReadOnlyCollection<CodeWindow> windows)

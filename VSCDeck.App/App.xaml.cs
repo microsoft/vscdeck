@@ -29,16 +29,12 @@ public partial class App : Application
         };
         try
         {
-            var fresh = !File.Exists(AppStorage.SettingsPath);
             var settings = AppStorage.Load();
             if (settings.StartWithWindows) WindowsStartup.SetEnabled(true);
-            if (fresh)
-            {
-                var discovery = Task.Run(RemoteSourceDiscovery.Discover).GetAwaiter().GetResult();
-                settings.RemoteSources = discovery.Sources.ToList();
-                foreach (var warning in discovery.Warnings) AppStorage.Log(warning);
-                AppStorage.Save(settings);
-            }
+            var discovery = Task.Run(RemoteSourceDiscovery.Discover).GetAwaiter().GetResult();
+            settings.RemoteSources = RemoteSourceDiscovery.MergeSources(settings.RemoteSources, discovery.Sources);
+            foreach (var warning in discovery.Warnings) AppStorage.Log(warning);
+            AppStorage.Save(settings);
             MainWindow = new DeckWindow(settings);
             MainWindow.Show();
         }

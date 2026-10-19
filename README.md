@@ -133,12 +133,20 @@ live sessions is idle; an unavailable source is unknown.
 
 ### Existing dev-container windows
 
-On first launch, VSC Deck discovers running dev containers that match open VS
+On every launch, VSC Deck discovers running dev containers that match open VS
 Code windows. It checks matching Docker contexts and concrete host aliases from
 your existing SSH configuration, then saves the discovered sources in
-`RemoteSources`. Settings also provides **Discover Docker/SSH sources** to add
-containers opened later. Existing entries are retained when discovery is
-refreshed.
+`RemoteSources`. While Deck is running, newly opened windows appear automatically
+at the end of the list in discovery order. An unconfigured dev-container window
+also triggers background source discovery without a restart or any user action.
+Status becomes available when that discovery and the first telemetry poll finish.
+Unavailable sources are retried every 30 seconds while their windows remain open;
+another newly seen window can trigger discovery sooner. Existing monitors keep
+running during discovery. Settings also provides **Discover Docker/SSH sources**
+for an immediate manual refresh. Existing entries, including
+custom session roots and project identities, are retained when discovery is
+refreshed. Restarting only VSC Deck also discovers newly opened containers;
+no VS Code window or container needs to be restarted.
 
 Saved sources are polled only while a matching VS Code window is open.
 Closing that window suspends further checks and removes its status warnings,
@@ -219,6 +227,8 @@ dotnet build .\VSCDeck.App\VSCDeck.App.csproj -c Release
 dotnet run --project .\VSCDeck.Tests\VSCDeck.Tests.csproj -c Release
 dotnet run --project .\VSCDeck.WindowsTests\VSCDeck.WindowsTests.csproj -c Release
 dotnet run --project .\VSCDeck.WindowsTests\VSCDeck.WindowsTests.csproj -c Release -- --logging-only
+dotnet run --project .\VSCDeck.WindowsTests\VSCDeck.WindowsTests.csproj -c Release -- --discovery-only
+dotnet run --project .\VSCDeck.WindowsTests\VSCDeck.WindowsTests.csproj -c Release -- --runtime-discovery-live spike24_gemini_metrics
 dotnet run --project .\VSCDeck.WindowsTests\VSCDeck.WindowsTests.csproj -c Release -- --remote-lifecycle-only
 dotnet run --project .\VSCDeck.WindowsTests\VSCDeck.WindowsTests.csproj -c Release -- --ssh-only devbox
 dotnet publish .\VSCDeck.App\VSCDeck.App.csproj -c Release -o .\artifacts\VSCDeck
@@ -233,6 +243,13 @@ using its own disposable test windows. It does not close any VS Code windows.
 Use `--local-only` to run desktop checks without relying on SSH host availability.
 The focused logging checks reproduce the original concurrent-write race and
 verify serialized writes, compatible readers, exclusive locks, and recovery.
+The focused discovery checks verify new-container matching, remote-user session
+roots, runtime discovery and retries, append ordering, and merging into existing
+settings without interacting with VS Code.
+The optional live runtime discovery check requires an open dev-container window
+and its saved source; replace `spike24_gemini_metrics` with its project name.
+It omits that source from a separate test monitor and verifies automatic discovery
+and live telemetry without changing saved settings or interacting with VS Code.
 The SSH checks use a configured host to verify connection reuse, parallel
 response isolation, command error recovery, and owned-client cleanup.
 The remote lifecycle checks verify that closed workspaces remain quiet and

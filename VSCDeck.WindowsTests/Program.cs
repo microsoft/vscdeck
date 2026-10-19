@@ -30,6 +30,8 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
+        if (args.Contains("--discovery-only")) return RunDiscoveryTests();
+        if (args.Contains("--runtime-discovery-live")) return RunLiveDiscoveryTest(args);
         if (args.Contains("--remote-lifecycle-only")) return RunRemoteLifecycleTests();
         if (args.Contains("--logging-only")) return RunLoggingTests();
         if (args.Contains("--ssh-only")) return RunSshTests(args);
@@ -728,6 +730,172 @@ internal static class Program
 
     private static List<Button> TileButtons(Window window) =>
         Descendants<Button>(window).Where(b => b.Content is TextBlock).ToList();
+
+    private static int RunDiscoveryTests()
+    {
+        try
+        {
+            var window = new CodeWindow(0, 0,
+                "test-vertex.sh - spike24_gemini_metrics [Dev Container: Gemini Metrics @ desktop-linux] - Visual Studio Code",
+                "spike24_gemini_metrics [Dev Container: Gemini Metrics @ desktop-linux]", null);
+            var json = JsonSerializer.Serialize(new[]
+            {
+                new
+                {
+                    Config = new
+                    {
+                        User = "root",
+                        Labels = new Dictionary<string, string>
+                        {
+                            ["devcontainer.local_folder"] = @"c:\Bren\juno\spike24_gemini_metrics",
+                            ["devcontainer.metadata"] = """[{"remoteUser":"vscode"}]"""
+                        }
+                    }
+                }
+            });
+            var discovered = RemoteSourceDiscovery.ParseContainers(json, "desktop-linux", null, [window]);
+            Check(discovered is [{ Project: "spike24_gemini_metrics",
+                    SessionRoot: "/home/vscode/.copilot/session-state" }] && discovered[0].Matches(window),
+                "Spike24 discovery matches its window and prefers remoteUser over the container root user");
+            Check(RemoteSourceDiscovery.ParseContainers(json, "desktop-linux", null, []).Count == 0,
+                "Discovery does not add containers without an open matching window");
+            var configured = new RemoteSource
+            {
+                Project = "existing", Workspace = @"c:\work\existing",
+                SessionRoot = "/custom/.copilot/session-state", ProjectIdentity = @"c:\canonical\existing"
+            };
+            var merged = RemoteSourceDiscovery.MergeSources([configured], discovered);
+            Check(merged.Count == 2 && ReferenceEquals(merged[0], configured) &&
+                merged[1].Matches(window),
+                "Discovery adds a newly opened container even when settings already contain other sources");
+            var duplicate = new RemoteSource
+            {
+                Project = configured.Project, Workspace = configured.Workspace.ToUpperInvariant()
+            };
+            merged = RemoteSourceDiscovery.MergeSources(merged, [duplicate, .. discovered]);
+            Check(merged.Count == 2 && ReferenceEquals(merged[0], configured) &&
+                merged[0].SessionRoot == "/custom/.copilot/session-state" &&
+                merged[0].ProjectIdentity == @"c:\canonical\existing",
+                "Repeated discovery is case-insensitively deduplicated and retains custom source settings");
+            Check(RemoteSourceDiscovery.MergeSources(merged, []).SequenceEqual(merged),
+                "Unavailable discovery retains all previously configured sources");
+            Check(RemoteSourceDiscovery.MergeSources([], discovered).SequenceEqual(discovered),
+                "First-launch discovery still adds all matching sources");
+            var now = DateTimeOffset.UtcNow;
+            var calls = 0;
+            var completion = new TaskCompletionSource<RemoteDiscoveryResult>();
+            var runtime = new RuntimeSourceDiscovery(targets =>
+            {
+                calls++;
+                Check(targets.All(target => target.Project.Contains("[Dev Container:")),
+                    "Runtime discovery only probes unconfigured dev-container windows");
+                return completion.Task;
+            });
+            var local = new CodeWindow(1, 0, "local - Visual Studio Code", "local", null);
+            runtime.Poll([local], [configured], now);
+            Check(calls == 0, "Ordinary local windows do not trigger Docker or SSH discovery");
+            var pending = runtime.Poll([local, window], [configured], now);
+            Check(calls == 1 && pending.Sources.Count == 0,
+                "Opening a new container window starts background discovery without blocking the scan");
+            runtime.Poll([local, window], [configured], now.AddSeconds(1));
+            Check(calls == 1, "Repeated scans do not start overlapping discovery");
+            var secondWindow = window with { Handle = 2, Project = "new-project [Dev Container: New @ desktop-linux]" };
+            completion.SetResult(new([], ["Temporarily unavailable"]));
+            completion = new TaskCompletionSource<RemoteDiscoveryResult>();
+            runtime.Poll([local, window, secondWindow], [configured], now.AddSeconds(2));
+            Check(calls == 2, "A newly opened window triggers discovery without waiting for an older failure's retry");
+            var secondSource = new RemoteSource { Project = "new-project", Workspace = @"c:\work\new-project" };
+            completion.SetResult(new([.. discovered, secondSource], []));
+            var result = runtime.Poll([local, window, secondWindow], [configured], now.AddSeconds(3));
+            Check(result.Sources.Count == 2 && result.Warnings.Count == 0,
+                "Completed runtime discovery returns new sources and clears resolved warnings");
+            var allSources = RemoteSourceDiscovery.MergeSources([configured], result.Sources);
+            runtime.Poll([local, window, secondWindow], allSources, now.AddSeconds(60));
+            Check(calls == 2, "Configured windows do not rediscover or recreate their existing monitors");
+
+            var retries = 0;
+            var retrying = new RuntimeSourceDiscovery(_ =>
+            {
+                retries++;
+                return Task.FromResult(new RemoteDiscoveryResult([], ["Unavailable"]));
+            });
+            retrying.Poll([window], [], now);
+            var failure = retrying.Poll([window], [], now.AddSeconds(1));
+            Check(failure.Warnings.SequenceEqual(["Unavailable"]), "Discovery failures remain visible while a source is missing");
+            retrying.Poll([window], [], now.AddSeconds(30));
+            Check(retries == 1, "An unavailable source does not cause discovery on every scan");
+            retrying.Poll([window], [], now.AddSeconds(31));
+            Check(retries == 2, "An unavailable source is retried 30 seconds after discovery completes");
+            var closed = retrying.Poll([], [], now.AddSeconds(32));
+            Check(closed.Warnings.Count == 0 && closed.Sources.Count == 0,
+                "Closing an unconfigured window clears its discovery warning");
+            retrying.Poll([], [], now.AddSeconds(120));
+            Check(retries == 2, "Closed windows do not trigger further discovery");
+
+            var late = new TaskCompletionSource<RemoteDiscoveryResult>();
+            var closingRuntime = new RuntimeSourceDiscovery(_ => late.Task);
+            closingRuntime.Poll([window], [], now);
+            late.SetResult(new(discovered, []));
+            Check(closingRuntime.Poll([], [], now.AddSeconds(1)).Sources.Count == 0,
+                "A discovery result for a window closed during the probe is discarded");
+
+            var order = Identity.RelationsFor(["existing-a", "existing-b"]);
+            var ordered = Identity.Sort(["existing-a", "existing-b", window.Identity], order, identity => identity);
+            Check(ordered.SequenceEqual(["existing-a", "existing-b", window.Identity]),
+                "A never-seen window is appended after existing windows");
+            ordered[^1] = discovered[0].OrderIdentity;
+            Check(Identity.Sort(ordered, order, identity => identity).SequenceEqual(ordered),
+                "Resolving a new window's source retains its appended position");
+            Console.WriteLine($"All {checks} discovery checks passed without interacting with VS Code.");
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine(ex);
+            return 1;
+        }
+    }
+
+    private static int RunLiveDiscoveryTest(string[] args)
+    {
+        try
+        {
+            var settings = AppStorage.Load();
+            var option = Array.IndexOf(args, "--runtime-discovery-live");
+            if (option + 1 >= args.Length)
+                throw new ArgumentException("--runtime-discovery-live requires the project name of an open dev-container window.");
+            var project = args[option + 1];
+            Check(settings.RemoteSources.Any(source => source.Project == project),
+                "The live test project has a saved source that can be omitted from the test monitor");
+            var configured = settings.RemoteSources.Where(source => source.Project != project).ToList();
+            using var monitor = new CopilotMonitor(configured);
+            var deadline = DateTimeOffset.UtcNow.AddSeconds(90);
+            MonitorSnapshot snapshot;
+            do
+            {
+                snapshot = monitor.Scan();
+                var window = snapshot.Windows.SingleOrDefault(window => window.Project.StartsWith(project + " ["));
+                if (window?.Workspace is { } workspace &&
+                    snapshot.Sessions.Any(session => session.Workspace == workspace))
+                {
+                    Check(snapshot.RemoteSources.Count == configured.Count + 1,
+                        "The live monitor automatically adds the omitted project to its initially configured sources");
+                    Check(snapshot.RemoteSources.Take(configured.Count).SequenceEqual(configured),
+                        "Runtime discovery retains all existing source objects and their order");
+                    Check(snapshot.Warnings.Count == 0, "Live runtime discovery completes without status warnings");
+                    Console.WriteLine($"Live runtime discovery detected {project} telemetry without restarting or interacting with VS Code.");
+                    return 0;
+                }
+                Thread.Sleep(750);
+            } while (DateTimeOffset.UtcNow < deadline);
+            throw new TimeoutException($"Runtime discovery did not detect the live {project} session.");
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine(ex);
+            return 1;
+        }
+    }
 
     private static int RunLoggingTests()
     {

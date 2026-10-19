@@ -215,6 +215,11 @@ public sealed class DeckWindow : Window
         {
             var snapshot = await Task.Run(monitor.Scan);
             if (closing) return;
+            if (snapshot.RemoteSources.Count > settings.RemoteSources.Count)
+            {
+                settings.RemoteSources = RemoteSourceDiscovery.MergeSources(settings.RemoteSources, snapshot.RemoteSources);
+                SaveSettings();
+            }
             var oldSignature = string.Join("|", tiles.Select(t => $"{t.Window.Handle}:{t.Window.Identity}"));
             tiles.RemoveAll(t => snapshot.Windows.All(w => w.Handle != t.Window.Handle));
             foreach (var window in snapshot.Windows)
