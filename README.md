@@ -72,8 +72,8 @@ button returns to Large view.
   remain separate buttons when both are open.
 - Drag the title grip to move the always-on-top panel.
 - When **Snap to screen edges** is enabled in Settings, moving the panel within
-  eight physical pixels of any monitor edge snaps it to that edge. Snapping is
-  enabled by default.
+  24 physical pixels of any monitor edge snaps it flush to that edge, without a
+  gap. Snapping is enabled by default.
 - **Large** view uses 64 x 64 physical-pixel buttons and includes the title bar,
   settings, close button, and reorder grips. Use the ↙ title-bar button to
   switch to Compact view.
@@ -228,6 +228,7 @@ dotnet run --project .\VSCDeck.Tests\VSCDeck.Tests.csproj -c Release
 dotnet run --project .\VSCDeck.WindowsTests\VSCDeck.WindowsTests.csproj -c Release
 dotnet run --project .\VSCDeck.WindowsTests\VSCDeck.WindowsTests.csproj -c Release -- --logging-only
 dotnet run --project .\VSCDeck.WindowsTests\VSCDeck.WindowsTests.csproj -c Release -- --discovery-only
+dotnet run --project .\VSCDeck.WindowsTests\VSCDeck.WindowsTests.csproj -c Release -- --snapping-only
 dotnet run --project .\VSCDeck.WindowsTests\VSCDeck.WindowsTests.csproj -c Release -- --runtime-discovery-live spike24_gemini_metrics
 dotnet run --project .\VSCDeck.WindowsTests\VSCDeck.WindowsTests.csproj -c Release -- --remote-lifecycle-only
 dotnet run --project .\VSCDeck.WindowsTests\VSCDeck.WindowsTests.csproj -c Release -- --ssh-only devbox

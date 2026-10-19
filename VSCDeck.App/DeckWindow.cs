@@ -20,7 +20,7 @@ namespace VSCDeck.App;
 
 public sealed class DeckWindow : Window
 {
-    private const int SnapThresholdPixels = 8;
+    private const int SnapThresholdPixels = 24;
     internal const int RunningPulseCycleMilliseconds = 1200;
     internal const int BlipOnMilliseconds = 50;
     internal const int MaximumBlipJitterMilliseconds = 50;

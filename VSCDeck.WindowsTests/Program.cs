@@ -30,6 +30,7 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
+        if (args.Contains("--snapping-only")) return RunSnappingTests();
         if (args.Contains("--discovery-only")) return RunDiscoveryTests();
         if (args.Contains("--runtime-discovery-live")) return RunLiveDiscoveryTest(args);
         if (args.Contains("--remote-lifecycle-only")) return RunRemoteLifecycleTests();
@@ -126,14 +127,14 @@ internal static class Program
                 "Reorder insertion positions cover the left edge, gaps, and right edge");
             var monitorBounds = new NativeWindows.PixelRect(-1920, -200, 0, 880);
             Check(NativeWindows.CalculateSnapOffset(
-                new NativeWindows.PixelRect(-1913, -192, -1513, 108), monitorBounds, 8) == new NativeWindows.PixelOffset(-7, -8),
+                new NativeWindows.PixelRect(-1897, -176, -1497, 124), monitorBounds, 24) == new NativeWindows.PixelOffset(-23, -24),
                 "Window snaps to the top and left edges of a monitor with negative coordinates");
             Check(NativeWindows.CalculateSnapOffset(
-                new NativeWindows.PixelRect(-407, 572, -7, 872), monitorBounds, 8) == new NativeWindows.PixelOffset(7, 8),
+                new NativeWindows.PixelRect(-423, 556, -23, 856), monitorBounds, 24) == new NativeWindows.PixelOffset(23, 24),
                 "Window snaps to the bottom and right edges of a secondary monitor");
             Check(NativeWindows.CalculateSnapOffset(
-                new NativeWindows.PixelRect(-1911, -191, -1511, 109), monitorBounds, 8) == new NativeWindows.PixelOffset(0, 0),
-                "Window does not snap beyond the eight-pixel threshold");
+                new NativeWindows.PixelRect(-1895, -175, -1495, 125), monitorBounds, 24) == new NativeWindows.PixelOffset(0, 0),
+                "Window does not snap beyond the 24-pixel threshold");
             var saved = AppStorage.Load();
             saved.ButtonSize = 30;
             saved.Order = ["first", "second", "third"];
@@ -231,28 +232,7 @@ internal static class Program
             Check(NativeWindows.Activate(handle) is null, "Second foreground activation request");
             PumpUntil(() => !NativeWindows.IsZoomed(handle));
             Check(!NativeWindows.IsZoomed(handle), "Repeated foreground action restores test window");
-            var targetBounds = NativeWindows.GetWindowBounds(handle);
-            var screenBounds = NativeWindows.GetMonitorBounds(handle);
-            var targetWidth = targetBounds.Right - targetBounds.Left;
-            var targetHeight = targetBounds.Bottom - targetBounds.Top;
-            Check(SetWindowPos(handle, 0, screenBounds.Left + 3, screenBounds.Top + 3,
-                targetWidth, targetHeight, 0x0004 | 0x0010),
-                "Test window positioned near top-left monitor edges");
-            Check(DeckWindow.ApplyScreenEdgeSnap(handle, false) == default &&
-                NativeWindows.GetWindowBounds(handle) is var unsnapped &&
-                unsnapped.Left == screenBounds.Left + 3 && unsnapped.Top == screenBounds.Top + 3,
-                "A real near-edge window remains unsnapped when the setting is disabled");
-            Check(DeckWindow.ApplyScreenEdgeSnap(handle, true) == new NativeWindows.PixelOffset(-3, -3) &&
-                NativeWindows.GetWindowBounds(handle) is var topLeft &&
-                topLeft.Left == screenBounds.Left && topLeft.Top == screenBounds.Top,
-                "A real window snaps exactly to top-left monitor edges");
-            Check(SetWindowPos(handle, 0, screenBounds.Right - targetWidth - 3, screenBounds.Bottom - targetHeight - 3,
-                targetWidth, targetHeight, 0x0004 | 0x0010),
-                "Test window positioned near bottom-right monitor edges");
-            Check(DeckWindow.ApplyScreenEdgeSnap(handle, true) == new NativeWindows.PixelOffset(3, 3) &&
-                NativeWindows.GetWindowBounds(handle) is var bottomRight &&
-                bottomRight.Right == screenBounds.Right && bottomRight.Bottom == screenBounds.Bottom,
-                "A real window snaps exactly to bottom-right monitor edges");
+            CheckScreenEdgeSnapping(handle);
 
             var settings = new Settings { ButtonSize = 64, Left = SystemParameters.PrimaryScreenWidth - 50, Top = 180,
                 UseNotificationArea = true,
@@ -730,6 +710,80 @@ internal static class Program
 
     private static List<Button> TileButtons(Window window) =>
         Descendants<Button>(window).Where(b => b.Content is TextBlock).ToList();
+
+    private static int RunSnappingTests()
+    {
+        var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
+        var target = new Window
+        {
+            Title = "VSC Deck isolated snapping test", Width = 300, Height = 150,
+            ShowActivated = false, ShowInTaskbar = false, WindowStyle = WindowStyle.None
+        };
+        try
+        {
+            var monitor = new NativeWindows.PixelRect(-1920, -200, 0, 880);
+            foreach (var delta in new[] { -24, 0, 24 })
+            {
+                Check(NativeWindows.CalculateSnapOffset(
+                    new(-1920 + delta, -200 + delta, -1520 + delta, 100 + delta), monitor, 24) ==
+                    new NativeWindows.PixelOffset(-delta, -delta),
+                    $"Top-left snapping is flush at tolerance {delta} on a negative-coordinate monitor");
+                Check(NativeWindows.CalculateSnapOffset(
+                    new(-400 + delta, 580 + delta, delta, 880 + delta), monitor, 24) ==
+                    new NativeWindows.PixelOffset(-delta, -delta),
+                    $"Bottom-right snapping is flush at tolerance {delta}");
+            }
+            Check(NativeWindows.CalculateSnapOffset(
+                new(-1895, -175, -1495, 125), monitor, 24) == default &&
+                NativeWindows.CalculateSnapOffset(
+                    new(-425, 555, -25, 855), monitor, 24) == default,
+                "Windows 25 pixels from the screen edge do not snap");
+            target.Show();
+            CheckScreenEdgeSnapping(new WindowInteropHelper(target).Handle);
+            Console.WriteLine($"All {checks} snapping checks passed without interacting with VS Code.");
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine(ex);
+            return 1;
+        }
+        finally
+        {
+            target.Close();
+            app.Shutdown();
+        }
+    }
+
+    private static void CheckScreenEdgeSnapping(nint handle)
+    {
+        var target = NativeWindows.GetWindowBounds(handle);
+        var screen = NativeWindows.GetMonitorBounds(handle);
+        var width = target.Right - target.Left;
+        var height = target.Bottom - target.Top;
+        Check(SetWindowPos(handle, 0, screen.Left + 24, screen.Top + 24, width, height, 0x0004 | 0x0010),
+            "Test window positioned 24 px from the top-left screen edges");
+        Check(DeckWindow.ApplyScreenEdgeSnap(handle, false) == default &&
+            NativeWindows.GetWindowBounds(handle) is var unsnapped &&
+            unsnapped.Left == screen.Left + 24 && unsnapped.Top == screen.Top + 24,
+            "Snapping disabled leaves a real window unmoved");
+        Check(DeckWindow.ApplyScreenEdgeSnap(handle, true) == new NativeWindows.PixelOffset(-24, -24) &&
+            NativeWindows.GetWindowBounds(handle) is var topLeft &&
+            topLeft.Left == screen.Left && topLeft.Top == screen.Top,
+            "A real window within 24 physical pixels snaps flush to the top and left screen edges");
+        Check(SetWindowPos(handle, 0, screen.Right - width - 24, screen.Bottom - height - 24,
+            width, height, 0x0004 | 0x0010), "Test window positioned 24 px from the bottom-right screen edges");
+        Check(DeckWindow.ApplyScreenEdgeSnap(handle, true) == new NativeWindows.PixelOffset(24, 24) &&
+            NativeWindows.GetWindowBounds(handle) is var bottomRight &&
+            bottomRight.Right == screen.Right && bottomRight.Bottom == screen.Bottom,
+            "A real window within 24 physical pixels snaps flush to the bottom and right screen edges");
+        Check(SetWindowPos(handle, 0, screen.Left + 25, screen.Top + 25, width, height, 0x0004 | 0x0010),
+            "Test window positioned just outside the 24 px threshold");
+        Check(DeckWindow.ApplyScreenEdgeSnap(handle, true) == default &&
+            NativeWindows.GetWindowBounds(handle) is var outside &&
+            outside.Left == screen.Left + 25 && outside.Top == screen.Top + 25,
+            "A real window 25 physical pixels from the screen edges remains unmoved");
+    }
 
     private static int RunDiscoveryTests()
     {
