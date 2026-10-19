@@ -10,10 +10,12 @@ public sealed class RemoteSource
     public string Workspace { get; set; } = "";
     public string DockerContext { get; set; } = "desktop-linux";
     public string? SshHost { get; set; }
+    public bool DirectSsh { get; set; }
     public string? ProjectIdentity { get; set; }
     public string SessionRoot { get; set; } = "/home/vscode/.copilot/session-state";
     [System.Text.Json.Serialization.JsonIgnore]
-    public string Identity => "docker:" + (SshHost ?? DockerContext).ToLowerInvariant() + ":" + Core.Identity.NormalizePath(Workspace);
+    public string Identity => (DirectSsh ? "ssh:" : "docker:") +
+        (SshHost ?? DockerContext).ToLowerInvariant() + ":" + Core.Identity.NormalizePath(Workspace);
     [System.Text.Json.Serialization.JsonIgnore]
     public string OrderIdentity => string.IsNullOrWhiteSpace(ProjectIdentity)
         ? SshHost is null ? Core.Identity.NormalizePath(Workspace) : Identity
@@ -22,16 +24,24 @@ public sealed class RemoteSource
     public void Validate()
     {
         if (string.IsNullOrWhiteSpace(Project) || string.IsNullOrWhiteSpace(Workspace) ||
-            string.IsNullOrWhiteSpace(DockerContext) || string.IsNullOrWhiteSpace(SessionRoot) || !SessionRoot.StartsWith('/') ||
+            (!DirectSsh && string.IsNullOrWhiteSpace(DockerContext)) ||
+            (DirectSsh && (SshHost is null || !Workspace.StartsWith('/'))) ||
+            string.IsNullOrWhiteSpace(SessionRoot) || !SessionRoot.StartsWith('/') ||
             (ProjectIdentity is not null && string.IsNullOrWhiteSpace(ProjectIdentity)) ||
             (SshHost is not null && (SshHost.Length == 0 || SshHost.StartsWith('-') ||
                 SshHost.Any(c => !char.IsAsciiLetterOrDigit(c) && c is not ('.' or '-' or '_' or '@')))))
-            throw new FormatException("Invalid remote source. Specify a project, workspace label, Docker context, absolute session root, and valid SSH host.");
+            throw new FormatException("Invalid remote source. Specify a project, workspace, absolute session root, and valid SSH host or Docker context. Direct SSH requires a host and absolute workspace path.");
     }
 
     public bool Matches(CodeWindow window) =>
-        window.Project.StartsWith(Project + " [", StringComparison.OrdinalIgnoreCase) &&
-        window.Project.Contains("@ " + (SshHost ?? DockerContext) + "]", StringComparison.OrdinalIgnoreCase);
+        DirectSsh
+            ? window.Project.Equals(Project + " [SSH: " + SshHost + "]", StringComparison.OrdinalIgnoreCase)
+            : window.Project.StartsWith(Project + " [", StringComparison.OrdinalIgnoreCase) &&
+                window.Project.Contains("@ " + (SshHost ?? DockerContext) + "]", StringComparison.OrdinalIgnoreCase);
+
+    internal bool MatchesWorkspace(string workspace) => DirectSsh
+        ? Core.Identity.NormalizePath(workspace).Equals(Core.Identity.NormalizePath(Workspace), StringComparison.OrdinalIgnoreCase)
+        : Path.GetFileName(Core.Identity.NormalizePath(workspace)).Equals(Project, StringComparison.OrdinalIgnoreCase);
 }
 
 internal sealed record RemoteSnapshot(List<SessionStatus> Sessions, Dictionary<string, string> Errors,
@@ -135,7 +145,7 @@ internal sealed class RemoteMonitor : IDisposable
             try
             {
                 source.Validate();
-                if (container is null || DateTimeOffset.UtcNow >= rediscoverAt)
+                if (!source.DirectSsh && (container is null || DateTimeOffset.UtcNow >= rediscoverAt))
                 {
                     var ids = await Command(["docker", .. ContextArgs(), "ps", "--filter",
                         "label=devcontainer.local_folder=" + source.Workspace, "--format", "{{.ID}}"]);
@@ -147,8 +157,11 @@ internal sealed class RemoteMonitor : IDisposable
                     rediscoverAt = DateTimeOffset.UtcNow.AddSeconds(30);
                 }
                 var input = JsonSerializer.Serialize(new { root = source.SessionRoot, offsets });
-                var output = await Command(["docker", .. ContextArgs(), "exec", "-i", container,
-                    "python3", "-c", HelperScript], input);
+                var output = await Command(source.DirectSsh
+                    ? ["python3", "-c", HelperScript]
+                    : ["docker", .. ContextArgs(), "exec", "-i",
+                        container ?? throw new InvalidOperationException("Remote container was not discovered."),
+                        "python3", "-c", HelperScript], input);
                 using var document = JsonDocument.Parse(output);
                 var root = document.RootElement;
                 if (!root.GetProperty("available").GetBoolean())
@@ -171,8 +184,7 @@ internal sealed class RemoteMonitor : IDisposable
                     if (tracker.Ended || (tracker.LastEvent - DateTimeOffset.UnixEpoch).TotalSeconds <
                         item.GetProperty("started").GetDouble())
                         continue;
-                    var workspaceName = Path.GetFileName(tracker.Workspace);
-                    if (!workspaceName.Equals(source.Project, StringComparison.OrdinalIgnoreCase)) continue;
+                    if (!source.MatchesWorkspace(tracker.Workspace)) continue;
                     sessions.Add(tracker.Status with { Workspace = source.Identity });
                 }
                 var colorWarnings = await ReadWorkspaceColor();

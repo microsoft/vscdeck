@@ -131,13 +131,13 @@ not offer a general public API for reading another extension's internal sessions
 Logs are preferred to unreliable UI scraping. A verified remote source with no
 live sessions is idle; an unavailable source is unknown.
 
-### Existing dev-container windows
+### Dev-container and Remote-SSH windows
 
 On every launch, VSC Deck discovers running dev containers that match open VS
-Code windows. It checks matching Docker contexts and concrete host aliases from
+Code windows and workspaces opened directly with Remote-SSH. It checks matching Docker contexts and concrete host aliases from
 your existing SSH configuration, then saves the discovered sources in
 `RemoteSources`. While Deck is running, newly opened windows appear automatically
-at the end of the list in discovery order. An unconfigured dev-container window
+at the end of the list in discovery order. An unconfigured dev-container or Remote-SSH window
 also triggers background source discovery without a restart or any user action.
 Status becomes available when that discovery and the first telemetry poll finish.
 Unavailable sources are retried every 30 seconds while their windows remain open;
@@ -159,6 +159,12 @@ Docker context and SSH configuration, and the hosts' and containers' existing
 Python 3 interpreters. SSH is batch-only: no password or authentication dialog
 is opened. No extension, daemon, helper file, or package is installed in the
 containers. Only container labels, session files, and process metadata are read.
+
+For a plain `project [SSH: host]` window, discovery reads live Copilot IDE and
+agent-host metadata in the SSH user's home directory to identify the workspace.
+The reader runs directly on that host, without Docker or any container Python
+dependency. Sessions are matched by full workspace path; ambiguous folder names
+are reported instead of guessed. Python 3 is still required on the SSH host.
 
 Containers are found by the `devcontainer.local_folder` label, not hard-coded
 container IDs, so a rebuilt container can be rediscovered. Remote window titles
@@ -200,6 +206,11 @@ project identity for ordering. For an SSH-hosted project that also has a local
 view, optionally set `ProjectIdentity` to a shared canonical path as shown
 above; this preserves its position across those environments without merging
 their separate buttons.
+For a plain Remote-SSH workspace, set `"DirectSsh": true`, specify `SshHost` and
+the absolute host `Workspace`, and set `SessionRoot` to that SSH user's host
+session directory (for example, `/home/azureuser/.copilot/session-state`).
+`DockerContext` is unused in this mode. Omitting `DirectSsh` preserves the
+existing Docker-based behavior, including for SSH-hosted containers.
 New, unconfigured windows still appear immediately with buttons and hotkeys,
 but show unknown if no supported local source can be associated.
 

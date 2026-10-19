@@ -25,8 +25,10 @@ internal static partial class RemoteSourceDiscovery
 
         var sources = new List<RemoteSource>();
         var warnings = new List<string>();
-        var contexts = await DockerContexts(warnings);
-        foreach (var context in contexts.Where(context => hosts.Contains(context)))
+        var containerWindows = windows.Where(window => DevContainerHost().IsMatch(window.Project)).ToArray();
+        var containerHosts = containerWindows.Select(WindowHost).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var contexts = containerWindows.Length > 0 ? await DockerContexts(warnings) : [];
+        foreach (var context in contexts.Where(containerHosts.Contains))
             await DiscoverEndpoint(context, null, windows,
                 arguments => ProcessCommand.Run(["docker", "--context", context, .. arguments],
                     null, TimeSpan.FromSeconds(20), $"Docker context {context} discovery"), sources, warnings);
@@ -36,8 +38,13 @@ internal static partial class RemoteSourceDiscovery
         foreach (var host in hosts.Where(sshHosts.Contains))
         {
             using var channel = new SshCommandChannel(host);
-            await DiscoverEndpoint("default", host, windows, arguments => channel.Run(["docker", .. arguments]),
-                sources, warnings);
+            if (containerHosts.Contains(host))
+                await DiscoverEndpoint("default", host, containerWindows, arguments => channel.Run(["docker", .. arguments]),
+                    sources, warnings);
+            var sshWindows = windows.Where(window => SshWorkspaceTitle().Match(window.Project) is { Success: true } match &&
+                match.Groups[2].Value.Equals(host, StringComparison.OrdinalIgnoreCase)).ToArray();
+            if (sshWindows.Length > 0)
+                await DiscoverSshWorkspaces(host, sshWindows, channel, sources, warnings);
         }
 
         var distinct = sources.GroupBy(source => source.Identity, StringComparer.OrdinalIgnoreCase)
@@ -112,6 +119,68 @@ internal static partial class RemoteSourceDiscovery
         }
     }
 
+    internal static RemoteDiscoveryResult ParseSshWorkspaces(
+        string json, string host, IReadOnlyCollection<CodeWindow> windows)
+    {
+        using var document = JsonDocument.Parse(json);
+        var root = document.RootElement;
+        var sessionRoot = root.GetProperty("root").GetString() ?? throw new JsonException("SSH session root missing.");
+        var paths = root.GetProperty("workspaces").EnumerateArray().Select(item => item.GetString() ?? "").ToList();
+        foreach (var item in root.GetProperty("metadata").EnumerateArray())
+        {
+            var metadata = CopilotMonitor.ParseMetadata(item.GetString() ?? "");
+            if (metadata.GetValueOrDefault("client_name", "").Contains("vscode", StringComparison.OrdinalIgnoreCase))
+                paths.Add(metadata.GetValueOrDefault("cwd", ""));
+        }
+        var distinct = paths.Where(path => path.StartsWith('/'))
+            .GroupBy(Core.Identity.NormalizePath, StringComparer.OrdinalIgnoreCase).Select(group => group.First()).ToArray();
+        var sources = new List<RemoteSource>();
+        var warnings = new List<string>();
+        foreach (var window in windows)
+        {
+            var match = SshWorkspaceTitle().Match(window.Project);
+            if (!match.Success || !match.Groups[2].Value.Equals(host, StringComparison.OrdinalIgnoreCase)) continue;
+            var project = match.Groups[1].Value;
+            var candidates = distinct.Where(path => Path.GetFileName(Core.Identity.NormalizePath(path))
+                .Equals(project, StringComparison.OrdinalIgnoreCase)).ToArray();
+            if (candidates.Length == 1)
+            {
+                var source = new RemoteSource
+                {
+                    Project = project,
+                    Workspace = candidates[0],
+                    SshHost = host,
+                    DirectSsh = true,
+                    SessionRoot = sessionRoot
+                };
+                source.Validate();
+                sources.Add(source);
+            }
+            else if (candidates.Length > 1)
+                warnings.Add($"Ambiguous SSH workspace for {window.Project}; status is unknown.");
+        }
+        return new(MergeSources([], sources), warnings);
+    }
+
+    private static async Task DiscoverSshWorkspaces(string host, IReadOnlyCollection<CodeWindow> windows,
+        SshCommandChannel channel, List<RemoteSource> sources, List<string> warnings)
+    {
+        try
+        {
+            var output = await channel.Run(["python3", "-c", SshWorkspaceScript]);
+            var result = ParseSshWorkspaces(output, host, windows);
+            sources.AddRange(result.Sources);
+            warnings.AddRange(result.Warnings);
+            foreach (var warning in result.Warnings) AppStorage.Log(warning);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or
+            Win32Exception or FormatException or OperationCanceledException or InvalidOperationException)
+        {
+            var warning = $"SSH host {host} workspace discovery: {ex.Message}";
+            warnings.Add(warning);
+            AppStorage.Log(warning);
+        }
+    }
     private static async Task DiscoverEndpoint(string dockerContext, string? sshHost,
         IReadOnlyCollection<CodeWindow> windows, Func<string[], Task<string>> command,
         List<RemoteSource> sources, List<string> warnings)
@@ -155,11 +224,44 @@ internal static partial class RemoteSourceDiscovery
     internal static string? WindowHost(CodeWindow window)
     {
         var match = DevContainerHost().Match(window.Project);
-        return match.Success ? match.Groups[1].Value : null;
+        if (match.Success) return match.Groups[1].Value;
+        match = SshWorkspaceTitle().Match(window.Project);
+        return match.Success ? match.Groups[2].Value : null;
     }
 
     [GeneratedRegex(@"\[Dev Container: .+ @ ([^\]]+)\]$", RegexOptions.IgnoreCase)]
     private static partial Regex DevContainerHost();
+
+    [GeneratedRegex(@"^(.+) \[SSH: ([^\]]+)\]$", RegexOptions.IgnoreCase)]
+    private static partial Regex SshWorkspaceTitle();
+
+    private const string SshWorkspaceScript = """
+import glob, json, os
+root = os.path.expanduser("~/.copilot/session-state")
+result = {"root": root, "metadata": [], "workspaces": []}
+for directory in glob.glob(os.path.join(root, "*")):
+    owners = [os.path.basename(lock).split(".")[1]
+              for lock in glob.glob(os.path.join(directory, "inuse.*.lock"))]
+    if not any(pid.isdigit() and os.path.exists("/proc/" + pid) for pid in owners):
+        continue
+    try:
+        with open(os.path.join(directory, "workspace.yaml"), encoding="utf-8") as stream:
+            result["metadata"].append("".join(line for line in stream if line.startswith(("cwd:", "client_name:"))))
+    except FileNotFoundError:
+        continue
+for path in glob.glob(os.path.expanduser("~/.copilot/ide/*.lock")):
+    try:
+        if os.path.getsize(path) == 0:
+            continue
+        with open(path, encoding="utf-8") as stream:
+            ide = json.load(stream)
+        pid = ide.get("pid")
+        if isinstance(pid, int) and os.path.exists("/proc/" + str(pid)):
+            result["workspaces"].extend(ide.get("workspaceFolders", []))
+    except FileNotFoundError:
+        continue
+print(json.dumps(result))
+""";
 }
 
 internal sealed class RuntimeSourceDiscovery

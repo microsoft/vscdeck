@@ -813,6 +813,64 @@ internal static class Program
                 "Spike24 discovery matches its window and prefers remoteUser over the container root user");
             Check(RemoteSourceDiscovery.ParseContainers(json, "desktop-linux", null, []).Count == 0,
                 "Discovery does not add containers without an open matching window");
+            var sshWindow = new CodeWindow(3, 0, "juno59_nlwf [SSH: devbox] - Visual Studio Code",
+                "juno59_nlwf [SSH: devbox]", null);
+            var sshJson = JsonSerializer.Serialize(new
+            {
+                root = "/home/azureuser/.copilot/session-state",
+                workspaces = new[] { "/home/azureuser/wrk/juno59_nlwf" },
+                metadata = new[]
+                {
+                    "cwd: /home/azureuser/wrk/juno59_nlwf\nclient_name: vscode-agent-host\n",
+                    "cwd: /other/juno59_nlwf\nclient_name: copilot-cli\n"
+                }
+            });
+            var sshResult = RemoteSourceDiscovery.ParseSshWorkspaces(sshJson, "devbox", [sshWindow]);
+            Check(sshResult.Sources is [{ DirectSsh: true, Project: "juno59_nlwf",
+                    Workspace: "/home/azureuser/wrk/juno59_nlwf", SessionRoot: "/home/azureuser/.copilot/session-state" }] &&
+                sshResult.Warnings.Count == 0,
+                "Direct SSH discovery matches IDE and agent-host metadata using the host user's session root");
+            var sshSource = sshResult.Sources[0];
+            Check(sshSource.Matches(sshWindow) &&
+                !sshSource.Matches(sshWindow with { Project = "juno59_nlwf [SSH: other-host]" }) &&
+                !sshSource.Matches(sshWindow with { Project = "juno59_nlwf [Dev Container: Azure Terraform @ devbox]" }),
+                "Direct SSH sources match only the exact project and SSH host, not container windows");
+            var samePathContainer = new RemoteSource
+            {
+                Project = sshSource.Project, Workspace = sshSource.Workspace, SshHost = sshSource.SshHost
+            };
+            Check(sshSource.Identity.StartsWith("ssh:devbox:") &&
+                RemoteSourceDiscovery.MergeSources([sshSource], [samePathContainer]).Count == 2,
+                "Direct SSH and container sources for the same host path have distinct identities");
+            Check(sshSource.MatchesWorkspace("/home/azureuser/wrk/juno59_nlwf") &&
+                !sshSource.MatchesWorkspace("/other/juno59_nlwf"),
+                "Direct SSH sessions use exact workspace paths rather than matching another directory with the same name");
+            Check(RemoteSourceDiscovery.WindowHost(sshWindow) == "devbox",
+                "Runtime discovery recognizes plain Remote-SSH window titles");
+            var ambiguousJson = JsonSerializer.Serialize(new
+            {
+                root = "/home/azureuser/.copilot/session-state",
+                workspaces = new[] { "/one/juno59_nlwf", "/two/juno59_nlwf" },
+                metadata = Array.Empty<string>()
+            });
+            var ambiguous = RemoteSourceDiscovery.ParseSshWorkspaces(ambiguousJson, "devbox", [sshWindow]);
+            Check(ambiguous.Sources.Count == 0 && ambiguous.Warnings.Count == 1,
+                "Ambiguous Remote-SSH directory names are reported instead of guessed");
+            Check(RemoteSourceDiscovery.ParseSshWorkspaces(sshJson, "other-host", [sshWindow]).Sources.Count == 0 &&
+                RemoteSourceDiscovery.ParseSshWorkspaces(sshJson, "devbox", [window]).Sources.Count == 0,
+                "SSH workspace discovery excludes other hosts and dev-container windows");
+            var sshRuntime = new RuntimeSourceDiscovery(_ => Task.FromResult(sshResult));
+            var sshNow = DateTimeOffset.UtcNow;
+            sshRuntime.Poll([sshWindow], [], sshNow);
+            Check(sshRuntime.Poll([sshWindow], [], sshNow.AddSeconds(1)).Sources.Single().DirectSsh,
+                "A newly opened plain Remote-SSH window is automatically discovered at runtime");
+            sshSource.DockerContext = "";
+            sshSource.Validate();
+            Check(JsonSerializer.Deserialize<RemoteSource>(JsonSerializer.Serialize(sshSource)) is { DirectSsh: true },
+                "Direct SSH sources persist their transport without requiring a Docker context");
+            Check(JsonSerializer.Deserialize<RemoteSource>("""{"Project":"old","Workspace":"/work/old","SshHost":"devbox"}""")
+                is { DirectSsh: false, Identity: "docker:devbox:\\work\\old" },
+                "Existing SSH-hosted container settings keep their original transport and identity");
             var configured = new RemoteSource
             {
                 Project = "existing", Workspace = @"c:\work\existing",
