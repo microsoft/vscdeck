@@ -156,8 +156,13 @@ internal sealed class RemoteMonitor : IDisposable
                     container = candidates[0];
                     rediscoverAt = DateTimeOffset.UtcNow.AddSeconds(30);
                 }
-                var input = JsonSerializer.Serialize(new { root = source.SessionRoot, offsets });
-                var output = await Command(source.DirectSsh
+                var hostContainer = !source.DirectSsh && channel is not null ? container : null;
+                var input = JsonSerializer.Serialize(new
+                {
+                    root = source.SessionRoot, offsets, container = hostContainer,
+                    scanScript = hostContainer is null ? null : ContainerOwnersScript
+                });
+                var output = await Command(source.DirectSsh || hostContainer is not null
                     ? ["python3", "-c", HelperScript]
                     : ["docker", .. ContextArgs(), "exec", "-i",
                         container ?? throw new InvalidOperationException("Remote container was not discovered."),
@@ -256,16 +261,77 @@ internal sealed class RemoteMonitor : IDisposable
 
     }
 
-    private const string HelperScript = """
-import glob, json, os, sys
+    internal static readonly string ContainerOwnersScript = """
+set -eu
+root=$1
+if [ ! -d "$root" ]; then
+    printf 'unavailable\000'
+    exit 0
+fi
+if [ ! -r "$root" ] || [ ! -x "$root" ]; then
+    printf 'Cannot read Copilot session directory: %s\n' "$root" >&2
+    exit 1
+fi
+boot=
+while read -r key value rest; do
+    if [ "$key" = btime ]; then boot=$value; break; fi
+done < /proc/stat
+ticks=$(getconf CLK_TCK)
+printf 'available\000%s\000%s\000' "$boot" "$ticks"
+for directory in "$root"/*; do
+    [ -f "$directory/workspace.yaml" ] && [ -f "$directory/events.jsonl" ] || continue
+    starts=
+    for lock in "$directory"/inuse.*.lock; do
+        [ -f "$lock" ] || continue
+        pid=${lock##*/inuse.}
+        pid=${pid%.lock}
+        case "$pid" in ''|*[!0-9]*) continue ;; esac
+        if ! stat=$(cat "/proc/$pid/stat" 2>/dev/null); then
+            [ ! -e "/proc/$pid/stat" ] && continue
+            printf 'Cannot read owner process %s\n' "$pid" >&2
+            exit 1
+        fi
+        fields=${stat##*) }
+        [ "${fields%% *}" != Z ] || continue
+        start=$(set -- $fields; shift 19; printf '%s' "$1")
+        starts="$starts $start"
+    done
+    [ -n "$starts" ] || continue
+    printf '%s\000%s\000' "${directory##*/}" "$starts"
+done
+""".ReplaceLineEndings("\n");
+
+    internal const string HelperScript = """
+import glob, io, json, os, subprocess, sys
 request = json.load(sys.stdin)
 root = request["root"]
-result = {"available": os.path.isdir(root), "sessions": []}
+container = request.get("container")
+def docker(*arguments):
+    reply = subprocess.run(["docker", "exec", container, *arguments],
+                           capture_output=True, timeout=40)
+    if reply.returncode:
+        detail = (reply.stderr + reply.stdout).decode("utf-8", errors="replace").strip()
+        print("Container telemetry read exited " + str(reply.returncode) + ": " + detail, file=sys.stderr)
+        sys.exit(reply.returncode)
+    return reply.stdout
+owners = []
+if container:
+    fields = docker("sh", "-c", request["scanScript"], "vscdeck", root).split(b"\0")
+    available = fields[0] == b"available"
+    if available:
+        boot, ticks = int(fields[1]), int(fields[2])
+        for index in range(3, len(fields) - 1, 2):
+            directory = os.path.join(root, fields[index].decode("utf-8"))
+            starts = [boot + int(value) / ticks for value in fields[index + 1].split()]
+            owners.append((directory, starts))
+else:
+    available = os.path.isdir(root)
+result = {"available": available, "sessions": []}
 types = {"session.start", "user.message", "assistant.turn_start", "assistant.message",
          "assistant.turn_end", "tool.execution_start", "tool.execution_complete",
          "permission.requested", "permission.completed", "session.idle",
          "session.task_complete", "session.shutdown", "session.error", "session.abort", "abort"}
-if result["available"]:
+if available and not container:
     boot = next(int(x.split()[1]) for x in open("/proc/stat") if x.startswith("btime "))
     ticks = os.sysconf("SC_CLK_TCK")
     for directory in glob.glob(os.path.join(root, "*")):
@@ -286,36 +352,50 @@ if result["available"]:
                 continue
         if not starts:
             continue
-        ident = os.path.basename(directory)
-        old = request["offsets"].get(ident, 0)
-        with open(events, "rb") as stream:
-            size = os.fstat(stream.fileno()).st_size
-            reset = size < old
-            start = 0 if reset else old
+        owners.append((directory, starts))
+for directory, starts in owners:
+    metadata = os.path.join(directory, "workspace.yaml")
+    events = os.path.join(directory, "events.jsonl")
+    ident = os.path.basename(directory)
+    old = request["offsets"].get(ident, 0)
+    if container:
+        size = int(docker("stat", "-c", "%s", "--", events))
+    else:
+        size = os.path.getsize(events)
+    reset = size < old
+    start = 0 if reset else old
+    stream = io.BytesIO(docker("tail", "-c", "+" + str(start + 1), "--", events)) if container else open(events, "rb")
+    with stream:
+        if not container:
             stream.seek(start)
-            projected = []
-            offset = start
-            while True:
-                line = stream.readline()
-                if not line or not line.endswith(b"\n"):
-                    break
-                event = json.loads(line)
-                offset = stream.tell()
-                if event.get("type") not in types:
-                    continue
-                data = event.get("data", {})
-                selected = {k: data[k] for k in
-                    ("toolCallId", "toolName", "toolTitle", "requestId", "context") if k in data}
-                if "content" in data:
-                    selected["content"] = str(data["content"])[:500]
-                if isinstance(data.get("arguments"), dict):
-                    selected["arguments"] = {"question": str(data["arguments"].get("question", ""))[:500]}
-                projected.append({"type": event["type"], "timestamp": event.get("timestamp"), "data": selected})
-        result["sessions"].append({
-            "id": ident, "metadata": open(metadata, encoding="utf-8").read(),
-            "events": projected, "offset": offset,
-            "reset": reset, "started": min(starts)
-        })
+        projected = []
+        offset = start
+        while True:
+            line = stream.readline()
+            if not line or not line.endswith(b"\n"):
+                break
+            event = json.loads(line)
+            offset += len(line)
+            if event.get("type") not in types:
+                continue
+            data = event.get("data", {})
+            selected = {k: data[k] for k in
+                ("toolCallId", "toolName", "toolTitle", "requestId", "context") if k in data}
+            if "content" in data:
+                selected["content"] = str(data["content"])[:500]
+            if isinstance(data.get("arguments"), dict):
+                selected["arguments"] = {"question": str(data["arguments"].get("question", ""))[:500]}
+            projected.append({"type": event["type"], "timestamp": event.get("timestamp"), "data": selected})
+    if container:
+        metadata_text = docker("cat", "--", metadata).decode("utf-8")
+    else:
+        with open(metadata, encoding="utf-8") as stream:
+            metadata_text = stream.read()
+    result["sessions"].append({
+        "id": ident, "metadata": metadata_text,
+        "events": projected, "offset": offset,
+        "reset": reset, "started": min(starts)
+    })
 json.dump(result, sys.stdout, ensure_ascii=False)
 """;
 

@@ -31,6 +31,7 @@ internal static class Program
     private static int Main(string[] args)
     {
         if (args.Contains("--snapping-only")) return RunSnappingTests();
+        if (args.Contains("--container-reader-only")) return RunContainerReaderTests(args);
         if (args.Contains("--discovery-only")) return RunDiscoveryTests();
         if (args.Contains("--runtime-discovery-live")) return RunLiveDiscoveryTest(args);
         if (args.Contains("--remote-lifecycle-only")) return RunRemoteLifecycleTests();
@@ -1008,6 +1009,144 @@ internal static class Program
             return 1;
         }
     }
+
+    private static int RunContainerReaderTests(string[] args)
+    {
+        try
+        {
+            var index = Array.IndexOf(args, "--container-reader-only");
+            if (index + 2 >= args.Length)
+                throw new ArgumentException("--container-reader-only requires an SSH host and a saved dev-container project.");
+            var host = args[index + 1];
+            var project = args[index + 2];
+            using var channel = new SshCommandChannel(host);
+            var fixtureInput = JsonSerializer.Serialize(new
+            {
+                reader = RemoteMonitor.HelperScript, scanScript = RemoteMonitor.ContainerOwnersScript
+            });
+            var fixtureOutput = channel.Run(["python3", "-c", ContainerReaderFixture], fixtureInput).GetAwaiter().GetResult();
+            Check(fixtureOutput.Trim() == "All 12 host container-reader fixture checks passed.",
+                "Host reader preserves byte offsets, partial lines, truncation, filtering, ownership timestamps, and explicit failures");
+            var source = AppStorage.Load().RemoteSources.Single(source =>
+                source.Project == project && source.SshHost == host && !source.DirectSsh);
+            var ids = channel.Run(["docker", "ps", "--filter", "label=devcontainer.local_folder=" + source.Workspace,
+                "--format", "{{.ID}}"]).GetAwaiter().GetResult()
+                .Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+            Check(ids.Length == 1, "The live no-Python container is uniquely identified by its saved workspace label");
+            var missingPython = false;
+            try { channel.Run(["docker", "exec", ids[0], "python3", "--version"]).GetAwaiter().GetResult(); }
+            catch (IOException ex) { missingPython = ex.Message.Contains("exited 127"); }
+            Check(missingPython, "The live test container has no python3 executable");
+            var window = new CodeWindow(0, 0, "", $"{project} [Dev Container: Test @ {host}]", null);
+            using var monitor = new RemoteMonitor([source]);
+            var deadline = DateTimeOffset.UtcNow.AddSeconds(90);
+            do
+            {
+                var snapshot = monitor.Scan([window]);
+                if (snapshot.Available.Contains(source.Identity) && snapshot.Sessions.Count > 0)
+                {
+                    Check(snapshot.Warnings.Count == 0 && snapshot.Errors.Count == 0,
+                        "A container without Python reports live sessions without monitoring errors");
+                    Check(snapshot.Sessions.All(session => session.Workspace == source.Identity),
+                        "Host-read telemetry is associated with the container workspace, not the host workspace");
+                    Console.WriteLine($"Live host-side reader detected {snapshot.Sessions.Count} session(s) in {project} without container Python.");
+                    return 0;
+                }
+                if (snapshot.Errors.Count > 0)
+                    throw new IOException(string.Join("\n", snapshot.Errors.Values));
+                Thread.Sleep(250);
+            } while (DateTimeOffset.UtcNow < deadline);
+            throw new TimeoutException($"Host-side container reader did not detect live telemetry in {project}.");
+        }
+        catch (Exception ex) { Console.Error.WriteLine(ex); return 1; }
+    }
+
+    private const string ContainerReaderFixture = """
+import contextlib, io, json, os, subprocess, sys, tempfile, types
+fixture = json.load(sys.stdin)
+root = "/home/vscode/.copilot/session-state"
+ident = "fixture-session"
+commands = []
+mode = "normal"
+def event(kind, content):
+    return (json.dumps({"type": kind, "timestamp": "2026-10-19T00:00:00Z",
+                        "data": {"content": content, "unused": "not transferred"}}, ensure_ascii=False) + "\n").encode()
+complete = event("user.message", "\u03c0") + event("ignored.event", "skip")
+partial = event("assistant.message", "partial")
+data = complete + partial[:-1]
+def run(argv, **kwargs):
+    assert argv[:3] == ["docker", "exec", "fixture-container"], argv
+    command = argv[3:]
+    commands.append(command)
+    if mode == "failure":
+        return types.SimpleNamespace(returncode=7, stdout=b"read failed", stderr=b"")
+    if command[0] == "sh":
+        assert command == ["sh", "-c", fixture["scanScript"], "vscdeck", root]
+        output = b"unavailable\0" if mode == "missing" else b"available\0" + b"1000\0" + b"100\0"
+        if mode == "normal":
+            output += ident.encode() + b"\0" + b"150 200\0"
+    elif command[0] == "stat":
+        output = str(len(data)).encode()
+    elif command[0] == "tail":
+        assert command[1] == "-c"
+        output = data[int(command[2][1:]) - 1:]
+    elif command[0] == "cat":
+        output = b"cwd: /work/project\nclient_name: vscode-agent-host\n"
+    else:
+        raise AssertionError(command)
+    return types.SimpleNamespace(returncode=0, stdout=output, stderr=b"")
+subprocess.run = run
+def read(offsets, session_root=root, container="fixture-container"):
+    request = {"root": session_root, "offsets": offsets, "container": container,
+               "scanScript": fixture["scanScript"]}
+    output = io.StringIO()
+    previous_input = sys.stdin
+    try:
+        sys.stdin = io.StringIO(json.dumps(request))
+        with contextlib.redirect_stdout(output):
+            exec(compile(fixture["reader"], "container-reader", "exec"), {})
+    finally:
+        sys.stdin = previous_input
+    return json.loads(output.getvalue())
+first = read({})["sessions"][0]
+assert first["offset"] == len(complete) and [e["type"] for e in first["events"]] == ["user.message"]
+assert first["events"][0]["data"] == {"content": "\u03c0"} and not first["reset"]
+assert first["started"] == 1001.5
+unchanged = read({ident: first["offset"]})["sessions"][0]
+assert unchanged["events"] == [] and unchanged["offset"] == len(complete)
+assert commands[-2] == ["tail", "-c", "+" + str(len(complete) + 1), "--", root + "/" + ident + "/events.jsonl"]
+data += b"\n"
+appended = read({ident: unchanged["offset"]})["sessions"][0]
+assert appended["offset"] == len(data) and [e["type"] for e in appended["events"]] == ["assistant.message"]
+data = event("session.idle", "idle")
+truncated = read({ident: appended["offset"]})["sessions"][0]
+assert truncated["reset"] and truncated["offset"] == len(data)
+mode = "empty"
+assert read({}) == {"available": True, "sessions": []}
+mode = "missing"
+assert read({}) == {"available": False, "sessions": []}
+mode = "failure"
+error = io.StringIO()
+with contextlib.redirect_stderr(error):
+    try:
+        read({})
+        raise AssertionError("A failed Docker read must not report healthy status")
+    except SystemExit as ex:
+        assert ex.code == 7 and "read failed" in error.getvalue()
+with tempfile.TemporaryDirectory(prefix="vscdeck-reader-") as temporary:
+    directory = os.path.join(temporary, ident)
+    os.mkdir(directory)
+    with open(os.path.join(directory, "workspace.yaml"), "w") as stream:
+        stream.write("cwd: /work/project\nclient_name: vscode-agent-host\n")
+    with open(os.path.join(directory, "events.jsonl"), "wb") as stream:
+        stream.write(data)
+    with open(os.path.join(directory, "inuse." + str(os.getpid()) + ".lock"), "w"):
+        pass
+    local = read({}, temporary, None)
+    assert local["available"] and len(local["sessions"]) == 1 and local["sessions"][0]["offset"] == len(data)
+    assert read({ident: len(data)}, temporary, None)["sessions"][0]["events"] == []
+print("All 12 host container-reader fixture checks passed.")
+""";
 
     private static int RunLoggingTests()
     {

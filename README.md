@@ -155,8 +155,13 @@ the window reopens. A check already in progress may finish after closure,
 but its result is discarded.
 
 VSC Deck uses the already-installed Docker and OpenSSH clients, your existing
-Docker context and SSH configuration, and the hosts' and containers' existing
-Python 3 interpreters. SSH is batch-only: no password or authentication dialog
+Docker context and SSH configuration, and existing Python 3 interpreters.
+Local Docker monitoring requires Python 3 inside the container. For SSH-hosted
+containers, the reader runs on the SSH host and uses only the container's
+existing `sh`, `cat`, `stat`, `tail`, and `getconf` utilities; Python is not
+required or installed inside those containers. Container event files are read
+incrementally, and owner processes and start times are verified inside the
+container's process namespace. SSH is batch-only: no password or authentication dialog
 is opened. No extension, daemon, helper file, or package is installed in the
 containers. Only container labels, session files, and process metadata are read.
 
@@ -241,6 +246,7 @@ dotnet run --project .\VSCDeck.WindowsTests\VSCDeck.WindowsTests.csproj -c Relea
 dotnet run --project .\VSCDeck.WindowsTests\VSCDeck.WindowsTests.csproj -c Release -- --discovery-only
 dotnet run --project .\VSCDeck.WindowsTests\VSCDeck.WindowsTests.csproj -c Release -- --snapping-only
 dotnet run --project .\VSCDeck.WindowsTests\VSCDeck.WindowsTests.csproj -c Release -- --runtime-discovery-live spike24_gemini_metrics
+dotnet run --project .\VSCDeck.WindowsTests\VSCDeck.WindowsTests.csproj -c Release -- --container-reader-only devbox juno59_nlwf
 dotnet run --project .\VSCDeck.WindowsTests\VSCDeck.WindowsTests.csproj -c Release -- --remote-lifecycle-only
 dotnet run --project .\VSCDeck.WindowsTests\VSCDeck.WindowsTests.csproj -c Release -- --ssh-only devbox
 dotnet publish .\VSCDeck.App\VSCDeck.App.csproj -c Release -o .\artifacts\VSCDeck
@@ -262,6 +268,10 @@ The optional live runtime discovery check requires an open dev-container window
 and its saved source; replace `spike24_gemini_metrics` with its project name.
 It omits that source from a separate test monitor and verifies automatic discovery
 and live telemetry without changing saved settings or interacting with VS Code.
+The optional container-reader checks require a saved SSH-hosted dev-container
+source with a live Copilot session and no `python3` in that container. They verify
+incremental parsing with in-memory fixtures on the host, then read live container
+telemetry without installing anything or interacting with VS Code.
 The SSH checks use a configured host to verify connection reuse, parallel
 response isolation, command error recovery, and owned-client cleanup.
 The remote lifecycle checks verify that closed workspaces remain quiet and
