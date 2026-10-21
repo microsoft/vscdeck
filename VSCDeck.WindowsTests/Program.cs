@@ -12,6 +12,7 @@ using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using VSCDeck.App;
 using VSCDeck.Core;
+using Activity = VSCDeck.Core.Activity;
 
 namespace VSCDeck.WindowsTests;
 
@@ -36,6 +37,7 @@ internal static class Program
         if (args.Contains("--runtime-discovery-live")) return RunLiveDiscoveryTest(args);
         if (args.Contains("--remote-lifecycle-only")) return RunRemoteLifecycleTests();
         if (args.Contains("--logging-only")) return RunLoggingTests();
+        if (args.Contains("--audio-only")) return RunAudioTests();
         if (args.Contains("--ssh-only")) return RunSshTests(args);
         var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
         var baseline = NativeWindows.Discover().Select(w => w.Handle).ToHashSet();
@@ -1147,6 +1149,151 @@ with tempfile.TemporaryDirectory(prefix="vscdeck-reader-") as temporary:
     assert read({ident: len(data)}, temporary, None)["sessions"][0]["events"] == []
 print("All 12 host container-reader fixture checks passed.")
 """;
+
+    private static int RunAudioTests()
+    {
+        var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
+        var fixtureRoot = Path.Combine(Path.GetTempPath(), "vscdeck-audio-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            foreach (var previous in Enum.GetValues<Activity>())
+            foreach (var current in Enum.GetValues<Activity>())
+            {
+                StatusSound? expected = previous == current || previous == Activity.Unknown ? null :
+                    current == Activity.Running ? StatusSound.Run :
+                    current == Activity.Question ? StatusSound.Question :
+                    previous == Activity.Running && current == Activity.Idle ? StatusSound.Done : null;
+                Check(StatusSounds.ForTransition(previous, current) == expected,
+                    $"Sound selection for {previous} -> {current}");
+            }
+            Check(StatusSounds.FolderName(StatusSound.Run) == "run" &&
+                StatusSounds.FolderName(StatusSound.Question) == "question" &&
+                StatusSounds.FolderName(StatusSound.Done) == "done",
+                "Each cue uses its own user-configurable sound folder");
+            using var sounds = new StatusSounds(fixtureRoot);
+            sounds.Play(StatusSound.Done);
+            Check(sounds.Voices.Count == 0 && sounds.Warning is null,
+                "Missing optional sound folders are silent without warnings");
+            foreach (var sound in Enum.GetValues<StatusSound>())
+            {
+                var folder = StatusSounds.FolderName(sound);
+                Check(File.Exists(Path.Combine(AppContext.BaseDirectory, "Assets", "Sounds", folder, ".gitkeep")),
+                    $"{folder} placeholder is included in build output");
+                Directory.CreateDirectory(Path.Combine(fixtureRoot, folder));
+                File.WriteAllText(Path.Combine(fixtureRoot, folder, ".gitkeep"), "");
+                File.WriteAllText(Path.Combine(fixtureRoot, folder, "ignored.mp3"), "not a WAV");
+                sounds.Play(sound);
+                Check(sounds.Voices.Count == 0 && sounds.Warning is null,
+                    $"{folder} is silent when it contains no WAV files");
+            }
+            var runPath = Path.Combine(fixtureRoot, "run", "any start sound.WAV");
+            var questionPath = Path.Combine(fixtureRoot, "question", "user-question.wav");
+            var donePath = Path.Combine(fixtureRoot, "done", "finished.wav");
+            WriteAudioFixture(runPath);
+            WriteAudioFixture(questionPath);
+            WriteAudioFixture(donePath);
+            sounds.Play(StatusSound.Run);
+            sounds.Play(StatusSound.Run);
+            sounds.Play(StatusSound.Question);
+            sounds.Play(StatusSound.Done);
+            var voices = sounds.Voices.ToArray();
+            Check(voices.Length == 4 && voices.Distinct().Count() == 4 &&
+                voices.All(voice => voice.Volume == 0.3),
+                "Simultaneous cues and repeated identical cues retain independent quiet playback voices");
+            PumpUntil(() => sounds.Warning is not null ||
+                voices.All(voice => voice.NaturalDuration.HasTimeSpan &&
+                    voice.Position >= TimeSpan.FromMilliseconds(30)), 10000);
+            Check(sounds.Warning is null && sounds.Voices.Count == 4 &&
+                voices.All(voice => voice.Position >= TimeSpan.FromMilliseconds(30)),
+                "Arbitrary filenames and uppercase WAV extensions decode and advance concurrently");
+            PumpUntil(() => sounds.Warning is not null || sounds.Voices.Count == 0, 10000);
+            Check(sounds.Warning is null && sounds.Voices.Count == 0,
+                "Finished playback releases every voice");
+            sounds.Play(StatusSound.Run);
+            sounds.Dispose();
+            Check(sounds.Voices.Count == 0, "Shutdown closes active playback voices");
+            var rejected = false;
+            try { sounds.Play(StatusSound.Done); }
+            catch (ObjectDisposedException) { rejected = true; }
+            Check(rejected, "Disposed playback rejects new cues");
+            using var configured = new StatusSounds(fixtureRoot);
+            var warnings = 0;
+            configured.WarningChanged += () => warnings++;
+            var duplicatePath = Path.Combine(fixtureRoot, "run", "duplicate.wav");
+            WriteAudioFixture(duplicatePath);
+            configured.Play(StatusSound.Run);
+            Check(configured.Voices.Count == 0 &&
+                configured.Warning?.Contains("exactly one WAV") == true && warnings == 1,
+                "Multiple WAVs are rejected with a visible folder warning instead of arbitrary selection");
+            File.Delete(duplicatePath);
+            configured.Play(StatusSound.Run);
+            PumpUntil(() => configured.Warning is null, 10000);
+            Check(warnings == 2 && configured.Voices.Count == 1,
+                "Removing the extra WAV restores playback without restarting");
+            PumpUntil(() => configured.Voices.Count == 0, 10000);
+            File.WriteAllText(questionPath, "not a WAV file");
+            configured.Play(StatusSound.Question);
+            PumpUntil(() => configured.Warning is not null, 10000);
+            Check(configured.Voices.Count == 0 && configured.Warning?.Contains(questionPath) == true,
+                "Invalid user recordings report a decoder warning and release their voice");
+            configured.Play(StatusSound.Done);
+            PumpUntil(() => configured.Warning is null, 10000);
+            Check(warnings == 4, "Successful playback clears the warning and notifies the panel");
+            PumpUntil(() => configured.Voices.Count == 0, 10000);
+            File.Delete(donePath);
+            configured.Play(StatusSound.Done);
+            Check(configured.Voices.Count == 0 && configured.Warning is null,
+                "Removing a recording disables its cue without a restart or warning");
+            WriteAudioFixture(donePath);
+            configured.Play(StatusSound.Done);
+            Check(configured.Voices.Count == 1, "Adding a recording enables its cue without a restart");
+            PumpUntil(() => configured.Voices.Count == 0, 10000);
+            Console.WriteLine($"Passed {checks} audio checks.");
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine(ex);
+            return 1;
+        }
+        finally
+        {
+            app.Shutdown();
+            if (Directory.Exists(fixtureRoot))
+            {
+                foreach (var folder in Directory.GetDirectories(fixtureRoot))
+                {
+                    foreach (var file in Directory.GetFiles(folder)) File.Delete(file);
+                    Directory.Delete(folder);
+                }
+                Directory.Delete(fixtureRoot);
+            }
+        }
+    }
+
+    private static void WriteAudioFixture(string path)
+    {
+        const int sampleRate = 44100;
+        const int frames = sampleRate * 4 / 5;
+        using var writer = new BinaryWriter(File.Create(path));
+        writer.Write("RIFF"u8);
+        writer.Write(36 + frames * 2);
+        writer.Write("WAVEfmt "u8);
+        writer.Write(16);
+        writer.Write((short)1);
+        writer.Write((short)1);
+        writer.Write(sampleRate);
+        writer.Write(sampleRate * 2);
+        writer.Write((short)2);
+        writer.Write((short)16);
+        writer.Write("data"u8);
+        writer.Write(frames * 2);
+        for (var i = 0; i < frames; i++)
+        {
+            var fade = Math.Min(1.0, Math.Min(i, frames - 1 - i) / 220.0);
+            writer.Write((short)(800 * fade * Math.Sin(2 * Math.PI * 440 * i / sampleRate)));
+        }
+    }
 
     private static int RunLoggingTests()
     {

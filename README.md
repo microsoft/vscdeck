@@ -38,6 +38,15 @@ button returns to Large view.
   it uses a 50-millisecond-on, 1.45-second-off cycle until the question is
   answered.
 - **Gray**: workspace/status cannot be determined, or telemetry cannot be read.
+- Optional user-supplied audio cues play on transition to **Run** and
+  **Question**, and once when **Run** becomes **Done**. Polling, repeated flashes,
+  focus acknowledgement, and initial discovery/recovery from **Unknown** do not
+  replay sounds. Each cue has its own playback voice, so simultaneous cues
+  (including repeated instances of the same cue) overlap without cutting off
+  one another. Playback uses 30% volume relative to the Windows application
+  volume; Windows Volume Mixer can adjust or mute VSC Deck independently.
+  Empty sound folders are silent. Multiple WAVs in a folder or unplayable audio
+  are logged and shown as a panel warning. See [Custom sound effects](#custom-sound-effects).
 - Buttons use rounded glass surfaces, subtle state-colored gradients, a top
   sheen, and hover/pressed highlights at both sizes without changing status
   colors. Each button owns its animation clocks. A running button starts its
@@ -243,6 +252,7 @@ dotnet build .\VSCDeck.App\VSCDeck.App.csproj -c Release
 dotnet run --project .\VSCDeck.Tests\VSCDeck.Tests.csproj -c Release
 dotnet run --project .\VSCDeck.WindowsTests\VSCDeck.WindowsTests.csproj -c Release
 dotnet run --project .\VSCDeck.WindowsTests\VSCDeck.WindowsTests.csproj -c Release -- --logging-only
+dotnet run --project .\VSCDeck.WindowsTests\VSCDeck.WindowsTests.csproj -c Release -- --audio-only
 dotnet run --project .\VSCDeck.WindowsTests\VSCDeck.WindowsTests.csproj -c Release -- --discovery-only
 dotnet run --project .\VSCDeck.WindowsTests\VSCDeck.WindowsTests.csproj -c Release -- --snapping-only
 dotnet run --project .\VSCDeck.WindowsTests\VSCDeck.WindowsTests.csproj -c Release -- --runtime-discovery-live spike24_gemini_metrics
@@ -261,6 +271,11 @@ using its own disposable test windows. It does not close any VS Code windows.
 Use `--local-only` to run desktop checks without relying on SSH host availability.
 The focused logging checks reproduce the original concurrent-write race and
 verify serialized writes, compatible readers, exclusive locks, and recovery.
+The focused audio checks use temporary synthesized fixtures to exercise
+transition selection, optional sound folders, arbitrary WAV filenames,
+duplicate-file reporting and recovery,
+overlapping playback (audible at low volume), completed-voice cleanup, playback
+errors, and shutdown cleanup without interacting with any VS Code windows.
 The focused discovery checks verify new-container matching, remote-user session
 roots, runtime discovery and retries, append ordering, and merging into existing
 settings without interacting with VS Code.
@@ -285,3 +300,33 @@ Microsoft Contributor License Agreement and Code of Conduct information.
 Please follow [SECURITY.md](SECURITY.md) when reporting security
 vulnerabilities rather than opening a public issue. VSC Deck is available
 under the [MIT License](LICENSE).
+
+## Custom sound effects
+
+VSC Deck distributes no audio recordings. To enable sounds, place **one WAV
+file of any name** directly in each desired folder beside the executable:
+
+```text
+Assets\Sounds\run\your-sound.wav
+Assets\Sounds\question\your-sound.wav
+Assets\Sounds\done\your-sound.wav
+```
+
+Each folder may have its own recording. Empty or missing folders disable that
+cue without warnings. Other file types and nested folders are ignored. More
+than one WAV in a folder is an error: no arbitrary file is selected, and the
+panel reports which folder needs attention. Invalid/unplayable recordings are
+also reported. Folder contents are read at each transition, so changing a file
+does not require restarting. Existing playback is allowed to finish.
+
+For local development, put recordings in the corresponding folders under
+`VSCDeck.App\Assets\Sounds`. Their contents are gitignored except for the tracked
+`.gitkeep` placeholders. Local WAVs are copied into development build output,
+but **never into `dotnet publish` output**. Published packages contain only
+the placeholder folders; users supply their own recordings after installation.
+Use a fresh publish directory when packaging, so files manually added to an
+older output directory cannot be accidentally included.
+
+Users are responsible for obtaining and using recordings under suitable
+licenses. Anyone who redistributes their own configured copy must comply with
+the licenses of any audio they add; gitignore does not change those obligations.

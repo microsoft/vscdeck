@@ -4,6 +4,14 @@
 ## Get latest from https://github.com/github/gitignore/blob/main/VisualStudio.gitignore
 
 # User-specific files
+# Sound recordings are supplied locally; retain only the directory placeholders.
+/VSCDeck.App/Assets/Sounds/run/*
+!/VSCDeck.App/Assets/Sounds/run/.gitkeep
+/VSCDeck.App/Assets/Sounds/question/*
+!/VSCDeck.App/Assets/Sounds/question/.gitkeep
+/VSCDeck.App/Assets/Sounds/done/*
+!/VSCDeck.App/Assets/Sounds/done/.gitkeep
+
 *.rsuser
 *.suo
 *.user

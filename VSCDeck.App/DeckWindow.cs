@@ -31,6 +31,7 @@ public sealed class DeckWindow : Window
     internal static Color RunningLampColor { get; } = Color.FromRgb(14, 49, 112);
     internal static Color QuestionLampColor { get; } = Color.FromRgb(66, 46, 4);
     private readonly Settings settings;
+    private readonly StatusSounds sounds = new();
     private CopilotMonitor monitor;
     private readonly StackPanel buttons = new() { Orientation = Orientation.Horizontal, AllowDrop = true };
     private readonly TextBlock notice = new() { Foreground = Brushes.Gold, FontSize = 10, Margin = new(6, 0, 6, 3), MaxWidth = 520 };
@@ -69,6 +70,7 @@ public sealed class DeckWindow : Window
     public DeckWindow(Settings settings)
     {
         this.settings = settings;
+        sounds.WarningChanged += () => UpdateNotice([]);
         monitor = new CopilotMonitor(settings.RemoteSources);
         hotkeys = Hotkey.ParseList(settings.Hotkeys);
         Title = "VSC Deck - Copilot overview";
@@ -185,6 +187,7 @@ public sealed class DeckWindow : Window
             closing = true;
             timer.Stop();
             monitor.Dispose();
+            sounds.Dispose();
             UnregisterHotkeys();
             SavePosition();
             source?.RemoveHook(WindowMessages);
@@ -247,6 +250,8 @@ public sealed class DeckWindow : Window
                 if (completion.ExpiresAt is { } expiresAt && previousCompletion.ExpiresAt != expiresAt)
                     ScheduleCompletionExpiry(tile, expiresAt);
                 tile.Question = UpdateQuestionIndicator(tile.Question, tile.Status.Activity, status.Activity);
+                if (StatusSounds.ForTransition(tile.Status.Activity, status.Activity) is { } sound)
+                    sounds.Play(sound);
                 tile.Status = status;
             }
             if (oldSignature != string.Join("|", tiles.Select(t => $"{t.Window.Handle}:{t.Window.Identity}")) ||
@@ -277,7 +282,8 @@ public sealed class DeckWindow : Window
                     Sessions = t.Status.Sessions.Select(s => new { s.Id, Activity = s.Activity.ToString(), s.Title, s.Description }),
                     t.Status.Detail
                 }),
-                Warnings = snapshot.Warnings.Concat(new[] { hotkeyWarning, actionWarning, AppStorage.LoggingWarning ?? "" }).Where(s => s.Length > 0)
+                Warnings = snapshot.Warnings.Concat(new[] { hotkeyWarning, actionWarning,
+                    sounds.Warning ?? "", AppStorage.LoggingWarning ?? "" }).Where(s => s.Length > 0)
             });
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or Win32Exception or JsonException)
@@ -901,7 +907,8 @@ public sealed class DeckWindow : Window
 
     private void UpdateNotice(IEnumerable<string> warnings)
     {
-        var all = warnings.Concat(new[] { hotkeyWarning, actionWarning, AppStorage.LoggingWarning ?? "" }).Where(s => s.Length > 0).ToArray();
+        var all = warnings.Concat(new[] { hotkeyWarning, actionWarning,
+            sounds.Warning ?? "", AppStorage.LoggingWarning ?? "" }).Where(s => s.Length > 0).ToArray();
         notice.Visibility = all.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
         notice.Text = AppStorage.LoggingWarning is not null ? "Logging warning - hover for details" :
             all.Length > 0 ? "Status / hotkey warning - hover for details" : "";

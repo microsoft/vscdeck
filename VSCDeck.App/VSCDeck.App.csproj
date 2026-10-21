@@ -13,6 +13,10 @@
   <ItemGroup>
     <ProjectReference Include="..\VSCDeck.Core\VSCDeck.Core.csproj" />
     <Resource Include="Assets\VSCDeck.ico" />
+    <Content Include="Assets\Sounds\run\.gitkeep;Assets\Sounds\question\.gitkeep;Assets\Sounds\done\.gitkeep"
+             CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Update="Assets\Sounds\run\*.wav;Assets\Sounds\question\*.wav;Assets\Sounds\done\*.wav"
+          CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="Never" />
     <Using Remove="System.Drawing" />
     <Using Remove="System.Windows.Forms" />
   </ItemGroup>
