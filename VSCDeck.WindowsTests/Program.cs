@@ -426,11 +426,11 @@ internal static class Program
             var idleButton = tileButtons.First(button => button != runningButton);
             DeckWindow.SetCompletionBlip(idleButton, new(true, 0));
             Check(DeckWindow.BlipOnMilliseconds == 50 &&
-                DeckWindow.CompletionBlipCycleMilliseconds == 2000 &&
+                DeckWindow.CompletionBlipCycleMilliseconds == 1000 &&
                 idleButton.Template.FindName("CompletionGlow", idleButton) is Border
                     { HasAnimatedProperties: true, Background: RadialGradientBrush completionBrush } &&
                 completionBrush.GradientStops.Any(stop => stop.Color.G > stop.Color.R && stop.Color.G > stop.Color.B),
-                "Completed button uses a repeating green blip during the final 50 milliseconds of each cycle");
+                "Completed button uses a repeating green blip during the final 50 milliseconds of each 1000-millisecond cycle");
             DeckWindow.SetCompletionBlip(idleButton, default);
             Check(idleButton.Template.FindName("CompletionGlow", idleButton) is Border
                     { HasAnimatedProperties: false, Opacity: 0 },

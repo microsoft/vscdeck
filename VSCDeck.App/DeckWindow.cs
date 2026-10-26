@@ -24,7 +24,7 @@ public sealed class DeckWindow : Window
     internal const int RunningPulseCycleMilliseconds = 1200;
     internal const int BlipOnMilliseconds = 50;
     internal const int MaximumBlipJitterMilliseconds = 50;
-    internal const int CompletionBlipCycleMilliseconds = 2000;
+    internal const int CompletionBlipCycleMilliseconds = 1000;
     internal const int ForegroundCompletionBlipCount = 3;
     internal const int QuestionBlipCycleMilliseconds = 1500;
     internal static Color IdleLampColor { get; } = Color.FromRgb(10, 60, 30);

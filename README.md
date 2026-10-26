@@ -28,7 +28,7 @@ button returns to Large view.
 - **Dark green**: all associated live sessions are idle. The button says
   **Idle**.
 - **Green blip**: a running agent has completed. Its button flashes bright
-  green for 50 milliseconds, then remains dark for 1.95 seconds. The blip
+  green for 50 milliseconds, then remains dark for 0.95 seconds. The blip
   repeats until that VS Code window gains focus, whether directly, by clicking
   its button, or by using its hotkey. Both views say **Done** while this
   acknowledgement is pending, then return to **Idle** after focus.
