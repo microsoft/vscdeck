@@ -21,7 +21,8 @@ namespace VSCDeck.App;
 public sealed class DeckWindow : Window
 {
     private const int SnapThresholdPixels = 24;
-    internal const int RunningPulseCycleMilliseconds = 1200;
+    internal const int MinimumRunningPulseCycleMilliseconds = 1200;
+    internal const int MaximumRunningPulseCycleMilliseconds = 1700;
     internal const int BlipOnMilliseconds = 50;
     internal const int MaximumBlipJitterMilliseconds = 50;
     internal const int CompletionBlipCycleMilliseconds = 1000;
@@ -682,17 +683,19 @@ public sealed class DeckWindow : Window
             glow.Opacity = 0;
             return;
         }
-        var pulse = new DoubleAnimation
-        {
-            From = .08,
-            To = .92,
-            Duration = TimeSpan.FromMilliseconds(RunningPulseCycleMilliseconds / 2),
-            AutoReverse = true,
-            RepeatBehavior = RepeatBehavior.Forever,
-            EasingFunction = new SineEase { EasingMode = EasingMode.EaseInOut }
-        };
-        glow.BeginAnimation(OpacityProperty, pulse);
+        glow.BeginAnimation(OpacityProperty, CreateRunningPulse());
     }
+
+    internal static DoubleAnimation CreateRunningPulse() => new()
+    {
+        From = .08,
+        To = .92,
+        Duration = TimeSpan.FromMilliseconds(Random.Shared.Next(
+            MinimumRunningPulseCycleMilliseconds, MaximumRunningPulseCycleMilliseconds + 1) / 2.0),
+        AutoReverse = true,
+        RepeatBehavior = RepeatBehavior.Forever,
+        EasingFunction = new SineEase { EasingMode = EasingMode.EaseInOut }
+    };
 
     internal static AttentionIndicator UpdateCompletionPending(AttentionIndicator completion,
         Activity previous, Activity current, bool isForeground, DateTimeOffset now)

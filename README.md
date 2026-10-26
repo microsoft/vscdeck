@@ -50,7 +50,10 @@ button returns to Large view.
 - Buttons use rounded glass surfaces, subtle state-colored gradients, a top
   sheen, and hover/pressed highlights at both sizes without changing status
   colors. Each button owns its animation clocks. A running button starts its
-  own prominent 1.2-second blue pulse when work is detected. Green and yellow
+  own prominent blue pulse when work is detected, with a randomly selected
+  full cycle of 1200–1700 milliseconds and equal rise and fall times. That cycle
+  stays fixed until the button leaves Run; each new entry into Run selects a
+  fresh cycle. Green and yellow
   blips start when their individual completion or question event is detected,
   so buttons do not animate in lockstep.
 - Hover a button for the workspace, every session, activity text, and questions.
@@ -255,6 +258,7 @@ dotnet run --project .\VSCDeck.WindowsTests\VSCDeck.WindowsTests.csproj -c Relea
 dotnet run --project .\VSCDeck.WindowsTests\VSCDeck.WindowsTests.csproj -c Release -- --audio-only
 dotnet run --project .\VSCDeck.WindowsTests\VSCDeck.WindowsTests.csproj -c Release -- --discovery-only
 dotnet run --project .\VSCDeck.WindowsTests\VSCDeck.WindowsTests.csproj -c Release -- --snapping-only
+dotnet run --project .\VSCDeck.WindowsTests\VSCDeck.WindowsTests.csproj -c Release -- --pulse-only
 dotnet run --project .\VSCDeck.WindowsTests\VSCDeck.WindowsTests.csproj -c Release -- --runtime-discovery-live spike24_gemini_metrics
 dotnet run --project .\VSCDeck.WindowsTests\VSCDeck.WindowsTests.csproj -c Release -- --container-reader-only devbox juno59_nlwf
 dotnet run --project .\VSCDeck.WindowsTests\VSCDeck.WindowsTests.csproj -c Release -- --remote-lifecycle-only
@@ -269,6 +273,8 @@ The Windows test executable exercises actual desktop controls, mouse drag/drop,
 pixel sizing, hotkey conflict reporting, persistence, and native maximize/restore
 using its own disposable test windows. It does not close any VS Code windows.
 Use `--local-only` to run desktop checks without relying on SSH host availability.
+The focused pulse checks verify randomized cycle bounds, equal rise/fall timing,
+and pulse retention and reset without interacting with VS Code or saved settings.
 The focused logging checks reproduce the original concurrent-write race and
 verify serialized writes, compatible readers, exclusive locks, and recovery.
 The focused audio checks use temporary synthesized fixtures to exercise

@@ -8,6 +8,7 @@ using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using VSCDeck.App;
@@ -31,6 +32,7 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
+        if (args.Contains("--pulse-only")) return RunPulseTests();
         if (args.Contains("--snapping-only")) return RunSnappingTests();
         if (args.Contains("--container-reader-only")) return RunContainerReaderTests(args);
         if (args.Contains("--discovery-only")) return RunDiscoveryTests();
@@ -363,10 +365,11 @@ internal static class Program
             var runningButton = tileButtons.First(b =>
                 b.Content is TextBlock label && label.Text.Split('\n').Last() == "Run");
             Check(runningButton is not null, "Real live agent session displays Run");
-            Check(DeckWindow.RunningPulseCycleMilliseconds == 1200 &&
+            Check(DeckWindow.MinimumRunningPulseCycleMilliseconds == 1200 &&
+                DeckWindow.MaximumRunningPulseCycleMilliseconds == 1700 &&
                 runningButton!.Template?.FindName("RunningGlow", runningButton) is Border
                     { HasAnimatedProperties: true, Background: RadialGradientBrush },
-                "Running button uses a prominent animated lamp glow on a 1200-millisecond cycle");
+                "Running button uses a prominent animated lamp glow on a random 1200–1700-millisecond cycle");
             Check(tileButtons.Where(b => b != runningButton).All(b =>
                     b.Template?.FindName("RunningGlow", b) is Border { HasAnimatedProperties: false, Opacity: 0 }),
                 "Non-running lamp buttons do not pulse");
@@ -713,6 +716,67 @@ internal static class Program
 
     private static List<Button> TileButtons(Window window) =>
         Descendants<Button>(window).Where(b => b.Content is TextBlock).ToList();
+
+    private static int RunPulseTests()
+    {
+        var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
+        var button = new Button
+        {
+            Template = (ControlTemplate)System.Windows.Markup.XamlReader.Parse("""
+                <ControlTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                                 TargetType="Button">
+                    <Border x:Name="RunningGlow" Opacity="0"
+                            xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" />
+                </ControlTemplate>
+                """)
+        };
+        var target = new Window
+        {
+            Title = "VSC Deck isolated pulse test", Content = button, Width = 80, Height = 80,
+            ShowActivated = false, ShowInTaskbar = false, WindowStyle = WindowStyle.None
+        };
+        try
+        {
+            var pulses = Enumerable.Range(0, 2000).Select(_ => DeckWindow.CreateRunningPulse()).ToArray();
+            var cycles = pulses.Select(pulse => pulse.Duration.TimeSpan.TotalMilliseconds * 2).ToArray();
+            Check(cycles.All(cycle => cycle is >= 1200 and <= 1700 && cycle == Math.Truncate(cycle)),
+                "Every sampled full cycle is an integer between 1200 and 1700 milliseconds inclusive");
+            Check(cycles.Distinct().Count() > 1 && cycles.Any(cycle => cycle % 2 == 1),
+                "New pulses vary in duration and preserve half-millisecond portions for odd cycle lengths");
+            Check(pulses.All(pulse => pulse.AutoReverse && pulse.RepeatBehavior == RepeatBehavior.Forever &&
+                    pulse.From == .08 && pulse.To == .92 &&
+                    pulse.EasingFunction is SineEase { EasingMode: EasingMode.EaseInOut }),
+                "Pulses have equal rise and fall portions and retain the existing glow and easing");
+            target.Show();
+            DeckWindow.SetRunningPulse(button, true);
+            var glow = (Border)button.Template.FindName("RunningGlow", button);
+            PumpUntil(() => glow.Opacity > .3);
+            var opacity = glow.Opacity;
+            DeckWindow.SetRunningPulse(button, true);
+            Check(glow.HasAnimatedProperties && glow.Opacity == opacity,
+                "Repeated Run updates retain the existing pulse rather than restarting it");
+            DeckWindow.SetRunningPulse(button, false);
+            Check(!glow.HasAnimatedProperties && glow.Opacity == 0,
+                "Leaving Run removes the pulse and clears the glow");
+            DeckWindow.SetRunningPulse(button, true);
+            Check(glow.HasAnimatedProperties && glow.Opacity < .3,
+                "Re-entering Run starts a fresh pulse");
+            DeckWindow.SetRunningPulse(button, false);
+            Console.WriteLine($"All {checks} pulse checks passed without interacting with VS Code.");
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine(ex);
+            return 1;
+        }
+        finally
+        {
+            DeckWindow.SetRunningPulse(button, false);
+            target.Close();
+            app.Shutdown();
+        }
+    }
 
     private static int RunSnappingTests()
     {
