@@ -33,6 +33,7 @@ internal static class Program
     private static int Main(string[] args)
     {
         if (args.Contains("--pulse-only")) return RunPulseTests();
+        if (args.Contains("--views-only")) return RunViewTests();
         if (args.Contains("--snapping-only")) return RunSnappingTests();
         if (args.Contains("--container-reader-only")) return RunContainerReaderTests(args);
         if (args.Contains("--discovery-only")) return RunDiscoveryTests();
@@ -300,17 +301,17 @@ internal static class Program
             Check(deck.Left + deck.ActualWidth <= SystemParameters.VirtualScreenLeft + SystemParameters.VirtualScreenWidth,
                 "Panel remains on screen after expanding to discovered windows");
             var dpi = VisualTreeHelper.GetDpi(deck);
-            var compactToggle = Descendants<Button>(deck).Single(b => Equals(b.Content, "↙"));
+            var compactToggle = Descendants<Button>(deck).Single(b => Equals(b.Content, "▲"));
             var settingsButton = Descendants<Button>(deck).Single(b =>
                 System.Windows.Automation.AutomationProperties.GetName(b) == "Settings");
             var closeButton = Descendants<Button>(deck).Single(b =>
                 System.Windows.Automation.AutomationProperties.GetName(b) == "Close VSC Deck");
-            Check(compactToggle.IsVisible && compactToggle.PointToScreen(new Point()).X <
-                settingsButton.PointToScreen(new Point()).X,
-                "Large view shows the compact toggle to the left of Settings");
-            Check(new[] { compactToggle, settingsButton, closeButton }.All(b =>
+            Check(compactToggle.IsVisible && compactToggle.IsEnabled &&
+                !Descendants<Button>(deck).Single(b => Equals(b.Content, "▼")).IsEnabled,
+                "Large view shows both arrows and disables the larger-view button");
+            Check(new[] { settingsButton, closeButton }.All(b =>
                     Math.Abs(b.ActualWidth - b.ActualHeight) < .1 &&
-                    Math.Abs(b.ActualWidth - compactToggle.ActualWidth) < .1 &&
+                    Math.Abs(b.ActualWidth - settingsButton.ActualWidth) < .1 &&
                     b.BorderThickness == new Thickness(0) &&
                     b.Template.FindName("CaptionSurface", b) is Border { Background: SolidColorBrush brush } &&
                     brush.Color.A == 0),
@@ -629,7 +630,7 @@ internal static class Program
                     System.Windows.Automation.AutomationProperties.GetName(b) is "Settings" or "Close VSC Deck")
                     .All(b => !b.IsVisible),
                 "Compact view hides the title bar, settings button, and close button");
-            var largeToggle = Descendants<Button>(compact).Single(b => Equals(b.Content, "↗"));
+            var largeToggle = Descendants<Button>(compact).Single(b => Equals(b.Content, "▼"));
             var moveGrip = Descendants<Border>(compact).Single(b =>
                 System.Windows.Automation.AutomationProperties.GetName(b) == "Move compact view");
             Check(largeToggle.ToolTip is null && moveGrip.ToolTip is null,
@@ -650,7 +651,7 @@ internal static class Program
                 Math.Abs(b.ActualWidth * dpi.DpiScaleX - 64) < .1));
             Check(Descendants<TextBlock>(compact).Any(t => t.Text == "VSC Deck  ::"),
                 "Compact expand button switches to large view");
-            Descendants<Button>(compact).Single(b => Equals(b.Content, "↙"))
+            Descendants<Button>(compact).Single(b => Equals(b.Content, "▲"))
                 .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             PumpUntil(() => compactSettings.ButtonSize == 32 && TileButtons(compact).All(b =>
                 Math.Abs(b.ActualWidth * dpi.DpiScaleX - 32) < .1));
@@ -677,8 +678,8 @@ internal static class Program
             testWindows.Add(dialog);
             dialog.Show();
             var viewOptions = Descendants<ComboBox>(dialog).Single();
-            Check(viewOptions.Items.Cast<string>().SequenceEqual(["Large", "Compact"]),
-                "Settings exposes large and compact view options");
+            Check(viewOptions.Items.Cast<string>().SequenceEqual(["Large", "Compact", "Mini"]),
+                "Settings exposes large, compact, and mini view options");
             viewOptions.SelectedItem = "Compact";
             var snapOption = Descendants<CheckBox>(dialog).Single(c => Equals(c.Content, "Snap to screen edges"));
             Check(snapOption.IsChecked == true, "Settings enables screen-edge snapping by default");
@@ -716,6 +717,134 @@ internal static class Program
 
     private static List<Button> TileButtons(Window window) =>
         Descendants<Button>(window).Where(b => b.Content is TextBlock).ToList();
+
+    private static int RunViewTests()
+    {
+        var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
+        var originalSettings = File.Exists(AppStorage.SettingsPath) ? File.ReadAllText(AppStorage.SettingsPath) : null;
+        var settings = new Settings { ButtonSize = 64 };
+        var deck = new DeckWindow(settings);
+        var dialog = new SettingsWindow(new Settings { ButtonSize = 20 });
+        const System.Reflection.BindingFlags flags =
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+        try
+        {
+            // Keep the deck unshown: no monitor, global hotkeys, or VS Code activation.
+            var tileType = typeof(DeckWindow).GetNestedType("Tile", System.Reflection.BindingFlags.NonPublic)!;
+            var tiles = (System.Collections.IList)typeof(DeckWindow).GetField("tiles", flags)!.GetValue(deck)!;
+            for (var index = 0; index < 16; index++)
+                tiles.Add(Activator.CreateInstance(tileType,
+                    new CodeWindow((nint)(index + 1), 0, $"Workspace {index + 1}", $"Project {index + 1}", null))!);
+            var root = (FrameworkElement)deck.Content;
+            void Layout()
+            {
+                root.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+                root.Arrange(new Rect(root.DesiredSize));
+                root.UpdateLayout();
+            }
+            typeof(DeckWindow).GetMethod("BuildTiles", flags)!.Invoke(deck, null);
+            Layout();
+            var up = Descendants<Button>(root).Single(b => Equals(b.Content, "▲"));
+            var down = Descendants<Button>(root).Single(b => Equals(b.Content, "▼"));
+            up.Margin = down.Margin = new Thickness(2);
+            foreach (var size in new[] { 64, 32, 20, 20, 32, 64, 64 })
+            {
+                if (settings.ButtonSize != size || size == 20 || size == 64)
+                {
+                    var smaller = size < settings.ButtonSize || size == 20;
+                    (smaller ? up : down).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                    Layout();
+                }
+                Check(settings.ButtonSize == size, $"View navigation reaches and stays within {size}-pixel bounds");
+                var dpi = VisualTreeHelper.GetDpi(deck);
+                var buttons = Descendants<Button>(root).Where(b => b.Content is TextBlock).ToArray();
+                Check(buttons.Length == 16 && buttons.All(b =>
+                        Math.Abs(b.ActualWidth * dpi.DpiScaleX - size) < .1 &&
+                        Math.Abs(b.ActualHeight * dpi.DpiScaleY - size) < .1),
+                    $"All sixteen tiles measure exactly {size} x {size} physical pixels");
+                Check(up.Visibility == (size == 20 ? Visibility.Collapsed : Visibility.Visible) &&
+                    down.Visibility == Visibility.Visible &&
+                    up.IsEnabled == (size > 20) && down.IsEnabled == (size < 64),
+                    $"Arrow visibility and enabled states match the {size}-pixel view");
+                Check(Grid.GetRow(down) == (size == 20 ? 0 : 1) &&
+                    Grid.GetRowSpan(down) == (size == 20 ? 2 : 1),
+                    $"The larger-view button uses the available control rows at {size} pixels");
+                if (size == 20)
+                {
+                    var controls = (Grid)VisualTreeHelper.GetParent(down);
+                    var column = (StackPanel)VisualTreeHelper.GetParent(buttons[0]);
+                    Check(controls.ActualHeight <= column.ActualHeight + .1,
+                        "Mini controls add no height beyond the tiles and workspace color stripe");
+                    Check(((Grid)root).RowDefinitions[1].ActualHeight <=
+                        column.ActualHeight + controls.Margin.Top + controls.Margin.Bottom + .1,
+                        "Mini tile row has no extra vertical space from the hidden up button");
+                }
+                Check(buttons.Select((b, index) => ((TextBlock)b.Content).Text ==
+                    (size == 20 ? (index + 1).ToString() : size == 32
+                        ? $"{index + 1}\n?" : $"{index + 1}\nProject {index + 1}\nUnknown")).All(match => match),
+                    $"Tile labels match the exact {size}-pixel layout, including two-digit positions");
+                Check(buttons.All(b => b.Background is LinearGradientBrush &&
+                    b.Template.FindName("GlassSheen", b) is Border),
+                    $"Glass colors and sheen remain present at {size} pixels");
+                Check(buttons.Select(FocusMarker).All(marker =>
+                    Math.Abs(marker.Width * dpi.DpiScaleX - (size == 20 ? 6 : size == 32 ? 10 : 24)) < .1 &&
+                    Math.Abs(marker.Height * dpi.DpiScaleY - (size < 64 ? 1 : 3)) < .1),
+                    $"Focus markers fit within {size}-pixel tiles");
+                Check(buttons.Select(ColorStripe).All(stripe =>
+                    Math.Abs(stripe.Height * dpi.DpiScaleY - (size < 64 ? 1 : 2)) < .1),
+                    $"Workspace color stripes keep their physical-pixel height at {size} pixels");
+                Check(buttons.All(b => b.ToolTip is TextBlock { Text.Length: > 0 } &&
+                    System.Windows.Automation.AutomationProperties.GetHelpText(b)
+                        .StartsWith(size == 32 ? "?." : "Unknown.", StringComparison.Ordinal)),
+                    $"Hover and accessible status details remain available at {size} pixels");
+                foreach (var button in buttons)
+                {
+                    DeckWindow.SetRunningPulse(button, true);
+                    DeckWindow.SetCompletionBlip(button, new(true, 0));
+                    DeckWindow.SetQuestionBlip(button, new(true, 0));
+                    Check(new[] { "RunningGlow", "CompletionGlow", "QuestionGlow" }.All(name =>
+                        HasAnimation(button, name)), $"All status animations work at {size} pixels");
+                    DeckWindow.SetRunningPulse(button, false);
+                    DeckWindow.SetCompletionBlip(button, default);
+                    DeckWindow.SetQuestionBlip(button, default);
+                }
+                if (size == 20)
+                {
+                    AppStorage.Save(settings);
+                    Check(AppStorage.Load().ButtonSize == 20, "Mini persists and reloads without migration");
+                }
+            }
+            AppStorage.Save(new Settings { ButtonSize = 16 });
+            Check(AppStorage.Load().ButtonSize == 20, "Legacy 16-pixel Mini settings migrate to 20 pixels");
+            using (var saved = JsonDocument.Parse(File.ReadAllText(AppStorage.SettingsPath)))
+                Check(saved.RootElement.GetProperty("ButtonSize").GetInt32() == 20,
+                    "Migrated 20-pixel Mini size is persisted");
+            AppStorage.Save(new Settings { ButtonSize = 30 });
+            Check(AppStorage.Load().ButtonSize == 32,
+                "Legacy 30-pixel Compact settings still migrate to 32 pixels");
+            var view = Descendants<ComboBox>((FrameworkElement)dialog.Content).Single();
+            Check(Equals(view.SelectedItem, "Mini") &&
+                view.Items.Cast<string>().SequenceEqual(["Large", "Compact", "Mini"]),
+                "Settings exposes all three views and restores Mini selection");
+            Console.WriteLine($"All {checks} view checks passed without interacting with VS Code.");
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine(ex);
+            return 1;
+        }
+        finally
+        {
+            deck.Close();
+            dialog.Close();
+            if (originalSettings is not null) File.WriteAllText(AppStorage.SettingsPath, originalSettings);
+            else if (File.Exists(AppStorage.SettingsPath)) File.Delete(AppStorage.SettingsPath);
+            app.Shutdown();
+        }
+        static bool HasAnimation(Button button, string name) =>
+            button.Template.FindName(name, button) is Border { HasAnimatedProperties: true };
+    }
 
     private static int RunPulseTests()
     {

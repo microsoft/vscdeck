@@ -38,7 +38,8 @@ public sealed class DeckWindow : Window
     private readonly TextBlock notice = new() { Foreground = Brushes.Gold, FontSize = 10, Margin = new(6, 0, 6, 3), MaxWidth = 520 };
     private readonly DockPanel header;
     private readonly ScrollViewer scroll;
-    private readonly Button compactModeToggle;
+    private readonly Button smallerViewButton;
+    private readonly Button largerViewButton;
     private readonly Border compactDragHandle;
     private readonly DispatcherTimer timer = new() { Interval = TimeSpan.FromMilliseconds(750) };
     private readonly List<Tile> tiles = [];
@@ -105,10 +106,6 @@ public sealed class DeckWindow : Window
         options.Click += async (_, _) => await OpenSettings();
         DockPanel.SetDock(options, Dock.Right);
         header.Children.Add(options);
-        var compact = CreateCaptionButton("↙", "Switch to compact view", CaptionButtonTemplate);
-        compact.Click += (_, _) => SwitchToCompactMode();
-        DockPanel.SetDock(compact, Dock.Right);
-        header.Children.Add(compact);
         var caption = new TextBlock { Text = "VSC Deck  ::", FontSize = 12, Margin = new(8, 5, 16, 5),
             Cursor = Cursors.SizeAll };
         caption.MouseLeftButtonDown += (_, args) =>
@@ -128,15 +125,24 @@ public sealed class DeckWindow : Window
         buttons.DragOver += ButtonsDragOver;
         buttons.DragLeave += ButtonsDragLeave;
         buttons.Drop += ButtonsDrop;
-        compactModeToggle = new Button { Content = "↗", Padding = new(0), Margin = new(0, 3, 0, 3),
-            BorderThickness = new(0), Background = Brushes.Transparent, Foreground = Brushes.White,
-            FontFamily = new FontFamily("Segoe UI Symbol"), FontSize = 14,
-            Template = CaptionButtonTemplate, VerticalAlignment = VerticalAlignment.Stretch };
-        System.Windows.Automation.AutomationProperties.SetName(compactModeToggle, "Switch to large view");
-        compactModeToggle.Click += (_, _) => SwitchToLargeMode();
-        Grid.SetRow(compactModeToggle, 1);
-        Grid.SetColumn(compactModeToggle, 1);
-        root.Children.Add(compactModeToggle);
+        var viewControls = new Grid { Margin = new(0, 3, 0, 3) };
+        viewControls.RowDefinitions.Add(new RowDefinition());
+        viewControls.RowDefinitions.Add(new RowDefinition());
+        smallerViewButton = CreateCaptionButton("▲", "Smaller view", CaptionButtonTemplate);
+        largerViewButton = CreateCaptionButton("▼", "Larger view", CaptionButtonTemplate);
+        foreach (var button in new[] { smallerViewButton, largerViewButton })
+        {
+            button.Width = double.NaN;
+            button.Height = double.NaN;
+            button.FontSize = 8;
+            viewControls.Children.Add(button);
+        }
+        smallerViewButton.Click += (_, _) => ChangeViewSize(smaller: true);
+        largerViewButton.Click += (_, _) => ChangeViewSize(smaller: false);
+        Grid.SetRow(largerViewButton, 1);
+        Grid.SetRow(viewControls, 1);
+        Grid.SetColumn(viewControls, 1);
+        root.Children.Add(viewControls);
         compactDragHandle = new Border
         {
             Background = new SolidColorBrush(Color.FromRgb(54, 60, 70)),
@@ -316,7 +322,7 @@ public sealed class DeckWindow : Window
             tile.Label = new TextBlock { TextAlignment = TextAlignment.Center,
                 TextWrapping = settings.ButtonSize == 32 ? TextWrapping.Wrap : TextWrapping.NoWrap,
                 TextTrimming = TextTrimming.CharacterEllipsis, FontSize = settings.ButtonSize == 32 ? 8 : 10,
-                Padding = new(settings.ButtonSize == 32 ? 0 : 2), ClipToBounds = true };
+                Padding = new(settings.ButtonSize < 64 ? 0 : 2), ClipToBounds = true };
             tile.Label.FontSize /= dpi.DpiScaleY;
             tile.Button = new Button
             {
@@ -335,7 +341,7 @@ public sealed class DeckWindow : Window
             column.Children.Add(tile.Button);
             tile.ColorStripe = new Border
             {
-                Height = (settings.ButtonSize == 32 ? 1 : 2) / dpi.DpiScaleY,
+                Height = (settings.ButtonSize < 64 ? 1 : 2) / dpi.DpiScaleY,
                 Margin = new Thickness(0, 1 / dpi.DpiScaleY, 0, 0),
                 Background = Brushes.Transparent,
                 IsHitTestVisible = false
@@ -504,7 +510,9 @@ public sealed class DeckWindow : Window
             var active = tile.Status.Sessions.Where(s => s.Activity is Activity.Running or Activity.Question).ToArray();
             var stateText = GetStateText(tile.Status.Activity, settings.ButtonSize == 32,
                 tile.Completion.Pending);
-            if (settings.ButtonSize == 32)
+            if (settings.ButtonSize == 20)
+                tile.Label.Text = (index + 1).ToString();
+            else if (settings.ButtonSize == 32)
                 tile.Label.Text = $"{index + 1}\n{stateText}{(active.Length > 1 ? active.Length.ToString() : "")}";
             else
                 tile.Label.Text = $"{index + 1}\n{WorkspaceDisplayName(tile.Window)}\n{stateText}";
@@ -663,8 +671,8 @@ public sealed class DeckWindow : Window
     {
         button.ApplyTemplate();
         if (button.Template.FindName("FocusMarker", button) is not Border marker) return;
-        var compact = buttonPixels == 32;
-        marker.Width = (compact ? 10 : 24) / dpi.DpiScaleX;
+        var compact = buttonPixels < 64;
+        marker.Width = (buttonPixels == 20 ? 6 : compact ? 10 : 24) / dpi.DpiScaleX;
         marker.Height = (compact ? 1 : 3) / dpi.DpiScaleY;
         marker.Margin = new Thickness(0, (compact ? 3 : 4) / dpi.DpiScaleY, 0, 0);
         marker.CornerRadius = compact ? new CornerRadius(0) :
@@ -825,6 +833,10 @@ public sealed class DeckWindow : Window
         var pressed = new Trigger { Property = Button.IsPressedProperty, Value = true };
         pressed.Setters.Add(new Setter(Border.BackgroundProperty, new SolidColorBrush(pressedColor), "CaptionSurface"));
         template.Triggers.Add(pressed);
+        var disabled = new Trigger { Property = IsEnabledProperty, Value = false };
+        disabled.Setters.Add(new Setter(OpacityProperty, .3, "CaptionSurface"));
+        disabled.Setters.Add(new Setter(Border.BackgroundProperty, Brushes.Transparent, "CaptionSurface"));
+        template.Triggers.Add(disabled);
         return template;
     }
 
@@ -1014,17 +1026,12 @@ public sealed class DeckWindow : Window
         notificationIconImage = null;
     }
 
-    private void SwitchToLargeMode()
+    private void ChangeViewSize(bool smaller)
     {
-        settings.ButtonSize = 64;
-        SaveSettings();
-        BuildTiles();
-        ClampPosition();
-    }
-
-    private void SwitchToCompactMode()
-    {
-        settings.ButtonSize = 32;
+        if (smaller ? settings.ButtonSize == 20 : settings.ButtonSize == 64) return;
+        settings.ButtonSize = smaller
+            ? settings.ButtonSize == 64 ? 32 : 20
+            : settings.ButtonSize == 20 ? 32 : 64;
         SaveSettings();
         BuildTiles();
         ClampPosition();
@@ -1032,13 +1039,20 @@ public sealed class DeckWindow : Window
 
     private void UpdateViewMode()
     {
-        var compact = settings.ButtonSize == 32;
+        var compact = settings.ButtonSize < 64;
+        var mini = settings.ButtonSize == 20;
         header.Visibility = compact ? Visibility.Collapsed : Visibility.Visible;
-        compactModeToggle.Visibility = compact ? Visibility.Visible : Visibility.Collapsed;
+        smallerViewButton.Visibility = mini ? Visibility.Collapsed : Visibility.Visible;
+        smallerViewButton.IsEnabled = settings.ButtonSize > 20;
+        largerViewButton.IsEnabled = settings.ButtonSize < 64;
+        Grid.SetRow(largerViewButton, mini ? 0 : 1);
+        Grid.SetRowSpan(largerViewButton, mini ? 2 : 1);
         compactDragHandle.Visibility = compact ? Visibility.Visible : Visibility.Collapsed;
         scroll.Margin = compact ? new Thickness(3, 3, 0, 3) : new Thickness(3);
         var dpi = VisualTreeHelper.GetDpi(this);
-        compactModeToggle.MinWidth = 32 / dpi.DpiScaleX;
+        smallerViewButton.MinWidth = largerViewButton.MinWidth = 16 / dpi.DpiScaleX;
+        smallerViewButton.MinHeight = largerViewButton.MinHeight = 8 / dpi.DpiScaleY;
+        smallerViewButton.FontSize = largerViewButton.FontSize = 8 / dpi.DpiScaleY;
         compactDragHandle.Width = 16 / dpi.DpiScaleX;
     }
 

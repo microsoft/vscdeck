@@ -34,8 +34,9 @@ public sealed class SettingsWindow : Window
         remoteSources = settings.RemoteSources.ToList();
         var panel = new StackPanel { Margin = new(16) };
         panel.Children.Add(new TextBlock { Text = "View" });
-        view = new ComboBox { ItemsSource = new[] { "Large", "Compact" },
-            SelectedItem = settings.ButtonSize == 64 ? "Large" : "Compact", Margin = new(0, 6, 0, 16) };
+        view = new ComboBox { ItemsSource = new[] { "Large", "Compact", "Mini" },
+            SelectedItem = settings.ButtonSize switch { 20 => "Mini", 32 => "Compact", _ => "Large" },
+            Margin = new(0, 6, 0, 16) };
         panel.Children.Add(view);
         snapToScreenEdges = new CheckBox { Content = "Snap to screen edges",
             IsChecked = settings.SnapToScreenEdges, Margin = new(0, 0, 0, 16) };
@@ -101,7 +102,7 @@ public sealed class SettingsWindow : Window
                 _ = Hotkey.ParseList(shortcuts.Text);
                 var selectedStartWithWindows = startWithWindows.IsChecked == true;
                 WindowsStartup.SetEnabled(selectedStartWithWindows);
-                SelectedSize = Equals(view.SelectedItem, "Compact") ? 32 : 64;
+                SelectedSize = view.SelectedItem switch { "Mini" => 20, "Compact" => 32, _ => 64 };
                 SelectedSnapToScreenEdges = snapToScreenEdges.IsChecked == true;
                 SelectedUseNotificationArea = notificationArea.IsChecked == true;
                 SelectedStartWithWindows = selectedStartWithWindows;

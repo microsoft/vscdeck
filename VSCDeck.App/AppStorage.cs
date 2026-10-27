@@ -35,10 +35,10 @@ public static class AppStorage
         if (!File.Exists(SettingsPath)) return new();
         var settings = JsonSerializer.Deserialize<Settings>(File.ReadAllText(SettingsPath))
             ?? throw new JsonException("Settings must be a JSON object.");
-        var migrateSize = settings.ButtonSize == 30;
-        if (migrateSize) settings.ButtonSize = 32;
-        if (settings.ButtonSize is not (32 or 64))
-            throw new JsonException("ButtonSize must be 32 or 64.");
+        var migrateSize = settings.ButtonSize is 16 or 30;
+        if (migrateSize) settings.ButtonSize = settings.ButtonSize == 16 ? 20 : 32;
+        if (settings.ButtonSize is not (20 or 32 or 64))
+            throw new JsonException("ButtonSize must be 20, 32, or 64.");
         if (settings.Order is null || settings.RelativeOrder is null || settings.Hotkeys is null ||
             settings.RemoteSources is null)
             throw new JsonException("Order, RelativeOrder, Hotkeys, and RemoteSources cannot be null.");

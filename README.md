@@ -13,15 +13,27 @@ There is no public network service and nothing is uploaded to external services.
 
 Large view uses 64 x 64 physical-pixel buttons with a fixed three-line layout:
 position, workspace name, and state. It also provides the title bar, settings
-and close actions, workspace reorder grips, and the switch to Compact view.
+and close actions, and workspace reorder grips.
 
 ### Compact
 
 ![VSC Deck in Compact view with six VS Code workspace buttons](docs/images/vscdeck-compact.png)
 
 Compact view uses 32 x 32 physical-pixel buttons and removes the title bar and
-reorder grips. The narrow strip at the right moves the panel, and the expand
-button returns to Large view.
+reorder grips. Tiles show their position and status text. The narrow strip at
+the right moves the panel.
+
+### Mini
+
+Mini view uses 20 x 20 physical-pixel buttons with only the position number:
+no workspace name, status text, or session count. It retains the same status
+colors, animations, hover details, and activation behavior as the larger views.
+Like Compact, it hides the title bar and reorder grips.
+
+View controls appear at the right. Up steps to a smaller view
+(Large → Compact → Mini); down steps to a larger view. Mini hides the up arrow
+and lets the down button use the available height, keeping the bar compact.
+Compact and Large show both arrows; down is disabled in Large.
 
 ## Using the panel
 
@@ -30,7 +42,7 @@ button returns to Large view.
 - **Green blip**: a running agent has completed. Its button flashes bright
   green for 50 milliseconds, then remains dark for 0.95 seconds. The blip
   repeats until that VS Code window gains focus, whether directly, by clicking
-  its button, or by using its hotkey. Both views say **Done** while this
+  its button, or by using its hotkey. Large and Compact say **Done** while this
   acknowledgement is pending, then return to **Idle** after focus.
 - **Blue**: at least one session is running.
 - **Yellow blip**: a session has an unanswered question or permission prompt.
@@ -48,7 +60,7 @@ button returns to Large view.
   Empty sound folders are silent. Multiple WAVs in a folder or unplayable audio
   are logged and shown as a panel warning. See [Custom sound effects](#custom-sound-effects).
 - Buttons use rounded glass surfaces, subtle state-colored gradients, a top
-  sheen, and hover/pressed highlights at both sizes without changing status
+  sheen, and hover/pressed highlights at all three sizes without changing status
   colors. Each button owns its animation clocks. A running button starts its
   own prominent blue pulse when work is detected, with a randomly selected
   full cycle of 1200–1700 milliseconds and equal rise and fall times. That cycle
@@ -59,16 +71,16 @@ button returns to Large view.
 - Hover a button for the workspace, every session, activity text, and questions.
   At 64 pixels, each button always shows exactly three lines: its position,
   workspace name, and state. At 32 pixels, the button displays its position,
-  state, and active-session count.
+  state, and active-session count. At 20 pixels, it displays only its position.
 - A stripe below each button reflects an explicitly customized
   `workbench.colorCustomizations.statusBar.background` from that
   workspace's `.vscode/settings.json` (or `.code-workspace` file). The stripe
   has a one-physical-pixel gap below the button, then is two physical pixels
-  high in Large view and one in Compact view. Workspaces without that
+  high in Large view and one in Compact and Mini views. Workspaces without that
   customization retain the same transparent stripe space.
 - The foreground VS Code window is identified by a small white bar centered
   along the top of its button. The marker is one physical pixel high in
-  Compact view and three physical pixels high with rounded ends in Large view.
+  Compact and Mini views and three physical pixels high with rounded ends in Large view.
 - Click a button or press its global hotkey to bring its VS Code window forward.
   VSC Deck then focuses the GitHub Copilot Chat input so you can immediately
   type or dictate. If that window is already foreground, the same action also
@@ -77,7 +89,7 @@ button returns to Large view.
   reorder it. A blue insertion marker shows the resulting position, including
   positions before the first and after the last button. The marker is hidden
   when dropping would leave the button in its current position. **Compact**
-  view hides these grips. Hotkeys follow positions, not projects. New windows
+  and **Mini** views hide these grips. Hotkeys follow positions, not projects. New windows
   are added in discovery order. Ordering is stored as before/after workspace
   relationships, so it survives temporarily closed workspaces. A local folder
   and its local Docker Dev Container view retain the same project position but
@@ -87,12 +99,15 @@ button returns to Large view.
   24 physical pixels of any monitor edge snaps it flush to that edge, without a
   gap. Snapping is enabled by default.
 - **Large** view uses 64 x 64 physical-pixel buttons and includes the title bar,
-  settings, close button, and reorder grips. Use the ↙ title-bar button to
-  switch to Compact view.
+  settings, close button, and reorder grips. Use the up arrow to switch to
+  Compact view.
 - **Compact** view uses 32 x 32 physical-pixel buttons without a title bar. Use
-  the expand button to return to Large view, or drag the 16-pixel strip at the
+  the down arrow to return to Large view, the up arrow to switch to Mini, or
+  drag the 16-pixel strip at the
   right edge to move the panel.
-- **Settings** selects **Large** or **Compact** view and edits comma-separated,
+- **Mini** view uses 20 x 20 physical-pixel, number-only buttons. Use the down
+  arrow to return to Compact view, or the right-edge strip to move the panel.
+- **Settings** selects **Large**, **Compact**, or **Mini** view and edits comma-separated,
   per-position hotkeys. Defaults are **Ctrl+Shift+1** through
   **Ctrl+Shift+9**, followed by **Ctrl+Shift+0**. Each shortcut accepts one or
   more of **Ctrl**, **Alt**, **Shift**, or **Win**, plus a digit, letter, or
@@ -117,6 +132,7 @@ Settings, workspace ordering, and panel position persist in
 order. Workspace directory identities are preferred to title/project identities.
 Saved 30-pixel settings from the initial version are automatically migrated to
 32 pixels without changing ordering, hotkeys, or position.
+Saved 16-pixel Mini settings are automatically migrated to 20 pixels.
 If multiple windows open the same workspace, both reflect that workspace's
 sessions; their individual order cannot reliably survive a restart.
 
@@ -259,6 +275,7 @@ dotnet run --project .\VSCDeck.WindowsTests\VSCDeck.WindowsTests.csproj -c Relea
 dotnet run --project .\VSCDeck.WindowsTests\VSCDeck.WindowsTests.csproj -c Release -- --discovery-only
 dotnet run --project .\VSCDeck.WindowsTests\VSCDeck.WindowsTests.csproj -c Release -- --snapping-only
 dotnet run --project .\VSCDeck.WindowsTests\VSCDeck.WindowsTests.csproj -c Release -- --pulse-only
+dotnet run --project .\VSCDeck.WindowsTests\VSCDeck.WindowsTests.csproj -c Release --artifacts-path .\artifacts\validation -- --views-only
 dotnet run --project .\VSCDeck.WindowsTests\VSCDeck.WindowsTests.csproj -c Release -- --runtime-discovery-live spike24_gemini_metrics
 dotnet run --project .\VSCDeck.WindowsTests\VSCDeck.WindowsTests.csproj -c Release -- --container-reader-only devbox juno59_nlwf
 dotnet run --project .\VSCDeck.WindowsTests\VSCDeck.WindowsTests.csproj -c Release -- --remote-lifecycle-only
@@ -275,6 +292,10 @@ using its own disposable test windows. It does not close any VS Code windows.
 Use `--local-only` to run desktop checks without relying on SSH host availability.
 The focused pulse checks verify randomized cycle bounds, equal rise/fall timing,
 and pulse retention and reset without interacting with VS Code or saved settings.
+The focused view checks use unshown, synthetic tiles to verify all three layouts,
+physical-pixel dimensions, arrow limits, animations, and Mini persistence without
+interacting with VS Code. They restore saved settings afterward. The isolated
+artifacts path avoids build-output locks while VSC Deck is running.
 The focused logging checks reproduce the original concurrent-write race and
 verify serialized writes, compatible readers, exclusive locks, and recovery.
 The focused audio checks use temporary synthesized fixtures to exercise
