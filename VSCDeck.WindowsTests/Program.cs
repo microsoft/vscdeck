@@ -17,7 +17,7 @@ using Activity = VSCDeck.Core.Activity;
 
 namespace VSCDeck.WindowsTests;
 
-internal static class Program
+internal static partial class Program
 {
     private static int checks;
     [DllImport("user32.dll")] private static extern bool SetCursorPos(int x, int y);
@@ -34,6 +34,8 @@ internal static class Program
     {
         if (args.Contains("--pulse-only")) return RunPulseTests();
         if (args.Contains("--views-only")) return RunViewTests();
+        if (args.Contains("--mru-only")) return RunMruTests();
+        if (args.Contains("--mru-discovery-only")) return RunMruDiscoveryTests();
         if (args.Contains("--snapping-only")) return RunSnappingTests();
         if (args.Contains("--container-reader-only")) return RunContainerReaderTests(args);
         if (args.Contains("--discovery-only")) return RunDiscoveryTests();
@@ -744,6 +746,15 @@ internal static class Program
                 Check(settings.ButtonSize == size, $"View navigation reaches and stays within {size}-pixel bounds");
                 var dpi = VisualTreeHelper.GetDpi(deck);
                 var buttons = Descendants<Button>(root).Where(b => b.Content is TextBlock).ToArray();
+                var recent = Descendants<Button>(root).Single(b =>
+                    System.Windows.Automation.AutomationProperties.GetName(b) == "Recent projects");
+                var lastTile = buttons[^1];
+                Check(recent.Content is string text && text == "+" &&
+                    recent.TranslatePoint(new Point(), root).X >=
+                        lastTile.TranslatePoint(new Point(lastTile.ActualWidth, 0), root).X &&
+                    Math.Abs(recent.ActualHeight * dpi.DpiScaleY - 20) < .1 &&
+                    Math.Abs(recent.TranslatePoint(new Point(), root).Y - 3) < .1,
+                    $"The recent-projects plus button follows the last {size}-pixel tile without increasing height");
                 Check(!Descendants<TextBlock>(root).Any(t => t.Text == "VSC Deck  ::") &&
                     !Descendants<Button>(root).Any(b =>
                         System.Windows.Automation.AutomationProperties.GetName(b) is "Settings" or "Close VSC Deck"),

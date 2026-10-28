@@ -15,6 +15,8 @@ using System.Windows.Threading;
 using VSCDeck.Core;
 using Drawing = System.Drawing;
 using Forms = System.Windows.Forms;
+using Stopwatch = System.Diagnostics.Stopwatch;
+using Process = System.Diagnostics.Process;
 
 namespace VSCDeck.App;
 
@@ -41,6 +43,12 @@ public sealed class DeckWindow : Window
     private readonly Button largerViewButton;
     private readonly Border dragHandle;
     private readonly Border controlsDragHandle;
+    private readonly Button recentProjectsButton;
+    private readonly RecentProjects? recentProjects;
+    private long usageTimestamp;
+    private DateTimeOffset nextHistorySave;
+    private bool usageRunning;
+    private string historyWarning = "";
     private readonly DispatcherTimer timer = new() { Interval = TimeSpan.FromMilliseconds(750) };
     private readonly List<Tile> tiles = [];
     private readonly List<int> registered = [];
@@ -70,6 +78,12 @@ public sealed class DeckWindow : Window
     public DeckWindow(Settings settings)
     {
         this.settings = settings;
+        try { recentProjects = AppStorage.LoadRecentProjects(); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or FormatException)
+        {
+            historyWarning = "Recent projects could not be loaded: " + ex.Message;
+            AppStorage.Log(historyWarning);
+        }
         sounds.WarningChanged += () => UpdateNotice([]);
         monitor = new CopilotMonitor(settings.RemoteSources);
         hotkeys = Hotkey.ParseList(settings.Hotkeys);
@@ -92,6 +106,7 @@ public sealed class DeckWindow : Window
         root.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         root.ColumnDefinitions.Add(new ColumnDefinition());
         root.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        root.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         scroll = new ScrollViewer { Content = buttons, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
@@ -99,6 +114,13 @@ public sealed class DeckWindow : Window
         var adornerDecorator = new AdornerDecorator { Child = scroll };
         Grid.SetColumn(adornerDecorator, 1);
         root.Children.Add(adornerDecorator);
+        recentProjectsButton = CreateCaptionButton("+", "Recent projects", CaptionButtonTemplate);
+        recentProjectsButton.Margin = new Thickness(0, 3, 0, 0);
+        recentProjectsButton.VerticalAlignment = VerticalAlignment.Top;
+        recentProjectsButton.ContextMenu = new ContextMenu();
+        recentProjectsButton.Click += (_, _) => ShowRecentProjects();
+        Grid.SetColumn(recentProjectsButton, 2);
+        root.Children.Add(recentProjectsButton);
         buttons.DragOver += ButtonsDragOver;
         buttons.DragLeave += ButtonsDragLeave;
         buttons.Drop += ButtonsDrop;
@@ -162,11 +184,11 @@ public sealed class DeckWindow : Window
         controlsDragHandle.MouseLeftButtonDown += DragPanel;
         Grid.SetRow(controlsDragHandle, 1);
         leftControls.Children.Add(controlsDragHandle);
-        Grid.SetColumn(dragHandle, 2);
+        Grid.SetColumn(dragHandle, 3);
         Grid.SetRowSpan(dragHandle, 2);
         root.Children.Add(dragHandle);
         Grid.SetRow(notice, 1);
-        Grid.SetColumnSpan(notice, 2);
+        Grid.SetColumnSpan(notice, 3);
         root.Children.Add(notice);
         Content = root;
         UpdateNotificationAreaMode();
@@ -178,6 +200,8 @@ public sealed class DeckWindow : Window
         };
         Loaded += async (_, _) =>
         {
+            usageTimestamp = Stopwatch.GetTimestamp();
+            usageRunning = true;
             ClampPosition();
             timer.Start();
             await Refresh();
@@ -185,12 +209,16 @@ public sealed class DeckWindow : Window
         DpiChanged += (_, _) => { UpdateViewMode(); BuildTiles(); ClampPosition(); };
         timer.Tick += async (_, _) =>
         {
+            SampleProjectUsage();
             AcknowledgeForegroundTile();
             PaintTiles();
             await Refresh();
         };
         Closing += (_, _) =>
         {
+            SampleProjectUsage();
+            SaveProjectHistory();
+            usageRunning = false;
             closing = true;
             timer.Stop();
             monitor.Dispose();
@@ -241,6 +269,7 @@ public sealed class DeckWindow : Window
             var sorted = Identity.Sort(tiles, settings.RelativeOrder, t => t.Window.OrderIdentity);
             tiles.Clear();
             tiles.AddRange(sorted);
+            SampleProjectUsage();
             foreach (var tile in tiles)
             {
                 var workspace = tile.Window.Workspace;
@@ -280,6 +309,7 @@ public sealed class DeckWindow : Window
                     t.Window.Project, t.Window.Workspace, Identity = t.Window.Identity,
                     t.Window.OrderIdentity,
                     t.Window.StatusBarBackground,
+                    Configuration = t.Window.Configuration,
                     Activity = t.Status.Activity.ToString(),
                     CompletionPending = t.Completion.Pending,
                     Hotkey = index < hotkeys.Count ? hotkeys[index].Label : "Unassigned",
@@ -289,7 +319,8 @@ public sealed class DeckWindow : Window
                     Sessions = t.Status.Sessions.Select(s => new { s.Id, Activity = s.Activity.ToString(), s.Title, s.Description }),
                     t.Status.Detail
                 }),
-                Warnings = snapshot.Warnings.Concat(new[] { hotkeyWarning, actionWarning,
+                RecentProjects = RecentProjectEntries(),
+                Warnings = snapshot.Warnings.Concat(new[] { hotkeyWarning, actionWarning, historyWarning,
                     sounds.Warning ?? "", AppStorage.LoggingWarning ?? "" }).Where(s => s.Length > 0)
             });
         }
@@ -922,7 +953,7 @@ public sealed class DeckWindow : Window
 
     private void UpdateNotice(IEnumerable<string> warnings)
     {
-        var all = warnings.Concat(new[] { hotkeyWarning, actionWarning,
+        var all = warnings.Concat(new[] { hotkeyWarning, actionWarning, historyWarning,
             sounds.Warning ?? "", AppStorage.LoggingWarning ?? "" }).Where(s => s.Length > 0).ToArray();
         notice.Visibility = all.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
         notice.Text = AppStorage.LoggingWarning is not null ? "Logging warning - hover for details" :
@@ -1047,8 +1078,97 @@ public sealed class DeckWindow : Window
         smallerViewButton.Width = largerViewButton.Width = 16 / dpi.DpiScaleX;
         smallerViewButton.Height = largerViewButton.Height = 20 / dpi.DpiScaleY;
         smallerViewButton.FontSize = largerViewButton.FontSize = 8 / dpi.DpiScaleY;
+        recentProjectsButton.Width = 20 / dpi.DpiScaleX;
+        recentProjectsButton.Height = 20 / dpi.DpiScaleY;
         dragHandle.Width = 16 / dpi.DpiScaleX;
     }
+
+    private void SampleProjectUsage()
+    {
+        if (!usageRunning || recentProjects is null) return;
+        var timestamp = Stopwatch.GetTimestamp();
+        var elapsed = Stopwatch.GetElapsedTime(usageTimestamp, timestamp);
+        usageTimestamp = timestamp;
+        var foreground = NativeWindows.GetForegroundWindow();
+        recentProjects.Observe(tiles.Select(tile => tile.Window.Configuration).OfType<ProjectConfiguration>(),
+            tiles.Find(tile => tile.Window.Handle == foreground)?.Window.Configuration?.Id,
+            DateTimeOffset.UtcNow, elapsed);
+        if (DateTimeOffset.UtcNow >= nextHistorySave) SaveProjectHistory();
+    }
+
+    private void SaveProjectHistory()
+    {
+        if (recentProjects is null || !recentProjects.IsDirty) return;
+        nextHistorySave = DateTimeOffset.UtcNow.AddSeconds(15);
+        try
+        {
+            AppStorage.SaveRecentProjects(recentProjects);
+            historyWarning = "";
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            historyWarning = "Recent projects could not be saved: " + ex.Message;
+            AppStorage.Log(historyWarning);
+        }
+    }
+
+    private void ShowRecentProjects()
+    {
+        SampleProjectUsage();
+        var menu = recentProjectsButton.ContextMenu;
+        menu.Items.Clear();
+        var entries = RecentProjectEntries();
+        foreach (var configuration in entries)
+        {
+            var item = new MenuItem
+            {
+                Header = configuration.Name.Replace("_", "__") + " - " + configuration.Environment,
+                ToolTip = configuration.WorkspaceUri
+            };
+            item.Click += async (_, _) => await OpenRecentProject(configuration);
+            menu.Items.Add(item);
+        }
+        if (entries.Count == 0)
+            menu.Items.Add(new MenuItem
+            {
+                Header = recentProjects is null ? "History unavailable - see panel warning" : "No recorded projects yet",
+                IsEnabled = false
+            });
+        menu.PlacementTarget = recentProjectsButton;
+        menu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
+        menu.IsOpen = true;
+    }
+
+    private async Task OpenRecentProject(ProjectConfiguration configuration)
+    {
+        try
+        {
+            var warnings = new List<string>();
+            var windows = await Task.Run(() =>
+                new ProjectConfigurationCatalog().Attach(NativeWindows.Discover(), warnings));
+            var existing = ProjectConfigurationCatalog.FindOpenConfiguration(configuration, windows);
+            if (existing is { } handle) await Activate(handle);
+            else
+            {
+                using var process = Process.Start(ProjectConfigurationCatalog.CreateLaunch(configuration)) ??
+                    throw new IOException("VS Code did not start.");
+                actionWarning = "";
+            }
+
+            UpdateNotice(warnings);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or Win32Exception or
+            InvalidOperationException or FormatException)
+        {
+            actionWarning = "Recent project could not be opened: " + ex.Message;
+            AppStorage.Log(actionWarning);
+            UpdateNotice([]);
+        }
+    }
+
+    private IReadOnlyList<ProjectConfiguration> RecentProjectEntries() =>
+        recentProjects?.OrderedMenuEntries(settings.RelativeOrder,
+            tiles.Select(tile => tile.Window.OrderIdentity)) ?? [];
 
     private void ClampPosition()
     {

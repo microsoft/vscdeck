@@ -16,6 +16,7 @@ internal sealed class CopilotMonitor : IDisposable
     private readonly RemoteMonitor remoteMonitor;
     private readonly List<RemoteSource> remoteSources;
     private readonly RuntimeSourceDiscovery discovery = new();
+    private readonly ProjectConfigurationCatalog configurationCatalog = new();
 
     public CopilotMonitor(IEnumerable<RemoteSource>? sources = null)
     {
@@ -120,7 +121,7 @@ internal sealed class CopilotMonitor : IDisposable
             return window with { Workspace = selected, ProjectIdentity = selected,
                 StatusBarBackground = statusBarBackground };
         }).ToList();
-        return new(windows, sessions, workspaceErrors, warnings,
+        return new(configurationCatalog.Attach(windows, warnings, remoteSources), sessions, workspaceErrors, warnings,
             AvailableWorkspaces(livePaths, remote.Available)) { RemoteSources = remoteSources.ToArray() };
     }
 

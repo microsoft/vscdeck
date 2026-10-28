@@ -13,6 +13,7 @@ public sealed record CodeWindow(nint Handle, int ProcessId, string Title, string
     public string? ProjectIdentity { get; init; }
     public string OrderIdentity => ProjectIdentity ?? Identity;
     public string? StatusBarBackground { get; init; }
+    public ProjectConfiguration? Configuration { get; init; }
 }
 
 internal static class NativeWindows

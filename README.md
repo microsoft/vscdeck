@@ -39,6 +39,47 @@ the Mini tiles and retain that position in Compact and Large. In those larger
 views, the space below the arrows is an additional panel drag grip; Mini has
 no grip below the arrows.
 
+### Recent projects
+
+The **+** button after the workspace buttons opens a menu of the ten most
+recently accessed project identities. A project appears only once: Deck offers
+its configuration with the most accumulated foreground time, even if a different
+configuration was used more recently. For example, a project used longer in a
+Dev Container than locally will be offered in that Dev Container. Ties prefer
+the configuration accessed most recently. Accessing any configuration makes
+its project recent again.
+Recency determines which ten projects qualify, not their display order. Menu
+entries follow the same saved relative ordering as the button bar, including
+projects that are currently closed. Unordered entries follow the current bar
+order, then their recorded discovery order.
+
+Deck records configurations as they are discovered, then samples foreground
+usage while running. Background windows do not accumulate time, and pauses
+longer than five seconds (including suspension) are not charged. It cannot
+recover usage time from before this feature was running. History retains all
+observed configurations and durations; only the menu is limited to ten projects.
+
+Reopen targets come from VS Code's standard Code/Code Insiders workspace metadata.
+They retain the exact local folder or `.code-workspace` URI, SSH authority, or
+Dev Container authority/configuration. Local and container variants share their
+host project's identity; SSH and container-over-SSH variants share their remote
+host project identity. Configured project-identity mappings are respected.
+Unrelated projects are not merged merely because their names match.
+If metadata is missing or ambiguous, a panel warning explains why the window
+cannot yet be recorded; Deck does not guess a configuration.
+
+Selecting a configuration that is already open uses the same activation,
+maximize/restore, and Copilot Chat behavior as its workspace button or hotkey.
+Otherwise Deck launches the recorded VS Code executable with **--new-window**
+and the exact saved workspace URI. Existing windows are not reused or reloaded.
+Only explicitly selecting a menu item activates or opens VS Code; collecting
+history and opening the menu do not.
+
+History is saved separately in `%LOCALAPPDATA%\VSCDeck\recent-projects.json`,
+at most every 15 seconds while changed and on normal exit. Read/write failures
+are logged and shown as panel warnings. Invalid history is left intact rather
+than silently replaced.
+
 ## Using the panel
 
 - **Dark green**: all associated live sessions are idle. The button says
@@ -284,6 +325,7 @@ dotnet run --project .\VSCDeck.WindowsTests\VSCDeck.WindowsTests.csproj -c Relea
 dotnet run --project .\VSCDeck.WindowsTests\VSCDeck.WindowsTests.csproj -c Release -- --snapping-only
 dotnet run --project .\VSCDeck.WindowsTests\VSCDeck.WindowsTests.csproj -c Release -- --pulse-only
 dotnet run --project .\VSCDeck.WindowsTests\VSCDeck.WindowsTests.csproj -c Release --artifacts-path .\artifacts\validation -- --views-only
+dotnet run --project .\VSCDeck.WindowsTests\VSCDeck.WindowsTests.csproj -c Release --artifacts-path .\artifacts\validation -- --mru-only
 dotnet run --project .\VSCDeck.WindowsTests\VSCDeck.WindowsTests.csproj -c Release -- --runtime-discovery-live spike24_gemini_metrics
 dotnet run --project .\VSCDeck.WindowsTests\VSCDeck.WindowsTests.csproj -c Release -- --container-reader-only devbox juno59_nlwf
 dotnet run --project .\VSCDeck.WindowsTests\VSCDeck.WindowsTests.csproj -c Release -- --remote-lifecycle-only
@@ -304,6 +346,9 @@ The focused view checks use unshown, synthetic tiles to verify all three layouts
 physical-pixel dimensions, arrow limits, animations, and Mini persistence without
 interacting with VS Code. They restore saved settings afterward. The isolated
 artifacts path avoids build-output locks while VSC Deck is running.
+The focused MRU checks verify usage accounting, configuration grouping, the
+ten-project menu limit, unbounded retained history, serialization, exact reopen
+arguments, and existing-window routing without opening or activating VS Code.
 The focused logging checks reproduce the original concurrent-write race and
 verify serialized writes, compatible readers, exclusive locks, and recovery.
 The focused audio checks use temporary synthesized fixtures to exercise

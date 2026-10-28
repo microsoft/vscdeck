@@ -25,6 +25,7 @@ public static class AppStorage
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "VSCDeck");
     public static string LogPath => Path.Combine(DirectoryPath, "vscdeck.log");
     public static string SettingsPath => Path.Combine(DirectoryPath, "settings.json");
+    public static string RecentProjectsPath => Path.Combine(DirectoryPath, "recent-projects.json");
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
     private static readonly LogWriter Logger = new(LogPath);
     public static string? LoggingWarning => Logger.Warning;
@@ -64,4 +65,19 @@ public static class AppStorage
         File.WriteAllText(Path.Combine(DirectoryPath, "status.json"), JsonSerializer.Serialize(value, JsonOptions));
 
     public static void Log(string message) => Logger.Write(message);
+
+    internal static RecentProjects LoadRecentProjects() =>
+        new(File.Exists(RecentProjectsPath)
+            ? JsonSerializer.Deserialize<List<ConfigurationUsage>>(File.ReadAllText(RecentProjectsPath))
+                ?? throw new JsonException("Recent projects must be a JSON array.")
+            : []);
+
+    internal static void SaveRecentProjects(RecentProjects history)
+    {
+        Directory.CreateDirectory(DirectoryPath);
+        var temp = RecentProjectsPath + ".tmp";
+        File.WriteAllText(temp, JsonSerializer.Serialize(history.Configurations, JsonOptions));
+        File.Move(temp, RecentProjectsPath, true);
+        history.MarkSaved();
+    }
 }
