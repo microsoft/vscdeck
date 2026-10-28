@@ -731,7 +731,8 @@ internal static class Program
             Layout();
             var up = Descendants<Button>(root).Single(b => Equals(b.Content, "▲"));
             var down = Descendants<Button>(root).Single(b => Equals(b.Content, "▼"));
-            up.Margin = down.Margin = new Thickness(2);
+            var upPosition = up.TranslatePoint(new Point(), root);
+            var downPosition = down.TranslatePoint(new Point(), root);
             foreach (var size in new[] { 64, 32, 20, 20, 32, 64, 64 })
             {
                 if (settings.ButtonSize != size || size == 20 || size == 64)
@@ -762,22 +763,51 @@ internal static class Program
                         Math.Abs(b.ActualWidth * dpi.DpiScaleX - size) < .1 &&
                         Math.Abs(b.ActualHeight * dpi.DpiScaleY - size) < .1),
                     $"All sixteen tiles measure exactly {size} x {size} physical pixels");
-                Check(up.Visibility == (size == 20 ? Visibility.Collapsed : Visibility.Visible) &&
+                Check(up.Visibility == Visibility.Visible &&
                     down.Visibility == Visibility.Visible &&
                     up.IsEnabled == (size > 20) && down.IsEnabled == (size < 64),
                     $"Arrow visibility and enabled states match the {size}-pixel view");
-                Check(Grid.GetRow(down) == (size == 20 ? 0 : 1) &&
-                    Grid.GetRowSpan(down) == (size == 20 ? 2 : 1),
-                    $"The larger-view button uses the available control rows at {size} pixels");
+                Check(Grid.GetColumn(up) == 0 && Grid.GetColumn(down) == 1 &&
+                    up.TranslatePoint(new Point(), root) == upPosition &&
+                    down.TranslatePoint(new Point(), root) == downPosition &&
+                    downPosition.X > upPosition.X && downPosition.Y == upPosition.Y &&
+                    downPosition.X + down.ActualWidth <= buttons[0].TranslatePoint(new Point(), root).X,
+                    $"The arrows stay side by side at fixed positions to the left of the {size}-pixel tiles");
+                Check(new[] { up, down }.All(button =>
+                    Math.Abs(button.ActualWidth * dpi.DpiScaleX - 16) < .1 &&
+                    Math.Abs(button.ActualHeight * dpi.DpiScaleY - 20) < .1),
+                    $"The arrows retain fixed 16 x 20 physical-pixel bounds at {size} pixels");
+                var controlsGrip = Descendants<Border>(root).Single(b =>
+                    System.Windows.Automation.AutomationProperties.GetName(b) == "Move VSC Deck below size controls");
+                Check(controlsGrip.Visibility == (size == 20 ? Visibility.Collapsed : Visibility.Visible) &&
+                    controlsGrip.Cursor == System.Windows.Input.Cursors.SizeAll &&
+                    ReferenceEquals(controlsGrip.ContextMenu, grip.ContextMenu),
+                    $"The additional move grip is available only in Compact and Large, including its context menu");
+                if (size > 20)
+                {
+                    Check(controlsGrip.ActualHeight > 0 &&
+                        controlsGrip.TranslatePoint(new Point(), root).Y >= downPosition.Y + down.ActualHeight &&
+                        Math.Abs(controlsGrip.ActualWidth - up.ActualWidth - down.ActualWidth) < .1 &&
+                        Math.Abs(controlsGrip.TranslatePoint(new Point(0, controlsGrip.ActualHeight), root).Y -
+                            (((Grid)root).RowDefinitions[0].ActualHeight - 3)) < .1,
+                        $"The {size}-pixel move grip fills the remaining space beneath both arrows");
+                    var column = (StackPanel)VisualTreeHelper.GetParent(buttons[0]);
+                    Check(((Grid)root).RowDefinitions[0].ActualHeight <= column.ActualHeight + 6 + .1,
+                        $"The {size}-pixel move grip does not increase the tile bar height");
+                }
                 if (size == 20)
                 {
                     var controls = (Grid)VisualTreeHelper.GetParent(down);
+                    var leftControls = (Grid)VisualTreeHelper.GetParent(controls);
                     var column = (StackPanel)VisualTreeHelper.GetParent(buttons[0]);
+                    Check(Math.Abs(downPosition.Y + down.ActualHeight / 2 -
+                        buttons[0].TranslatePoint(new Point(0, buttons[0].ActualHeight / 2), root).Y) < .1,
+                        "Mini arrows are vertically centered on the VS Code tiles");
                     Check(controls.ActualHeight <= column.ActualHeight + .1,
                         "Mini controls add no height beyond the tiles and workspace color stripe");
                     Check(((Grid)root).RowDefinitions[0].ActualHeight <=
-                        column.ActualHeight + controls.Margin.Top + controls.Margin.Bottom + .1,
-                        "Mini tile row has no extra vertical space from the hidden up button");
+                        column.ActualHeight + leftControls.Margin.Top + leftControls.Margin.Bottom + .1,
+                        "Mini tile row has no extra vertical space from the size controls");
                 }
                 Check(buttons.Select((b, index) => ((TextBlock)b.Content).Text ==
                     (size == 20 ? (index + 1).ToString() : size == 32

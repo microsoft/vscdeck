@@ -40,6 +40,7 @@ public sealed class DeckWindow : Window
     private readonly Button smallerViewButton;
     private readonly Button largerViewButton;
     private readonly Border dragHandle;
+    private readonly Border controlsDragHandle;
     private readonly DispatcherTimer timer = new() { Interval = TimeSpan.FromMilliseconds(750) };
     private readonly List<Tile> tiles = [];
     private readonly List<int> registered = [];
@@ -88,35 +89,38 @@ public sealed class DeckWindow : Window
         Top = settings.Top ?? 24;
 
         var root = new Grid();
-        root.ColumnDefinitions.Add(new ColumnDefinition());
         root.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        root.ColumnDefinitions.Add(new ColumnDefinition());
         root.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         scroll = new ScrollViewer { Content = buttons, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
             VerticalScrollBarVisibility = ScrollBarVisibility.Disabled, Margin = new(3) };
         var adornerDecorator = new AdornerDecorator { Child = scroll };
+        Grid.SetColumn(adornerDecorator, 1);
         root.Children.Add(adornerDecorator);
         buttons.DragOver += ButtonsDragOver;
         buttons.DragLeave += ButtonsDragLeave;
         buttons.Drop += ButtonsDrop;
-        var viewControls = new Grid { Margin = new(0, 3, 0, 3) };
-        viewControls.RowDefinitions.Add(new RowDefinition());
-        viewControls.RowDefinitions.Add(new RowDefinition());
+        var leftControls = new Grid { Margin = new(3, 3, 0, 3) };
+        leftControls.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        leftControls.RowDefinitions.Add(new RowDefinition());
+        var viewControls = new Grid();
+        viewControls.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        viewControls.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         smallerViewButton = CreateCaptionButton("▲", "Smaller view", CaptionButtonTemplate);
         largerViewButton = CreateCaptionButton("▼", "Larger view", CaptionButtonTemplate);
         foreach (var button in new[] { smallerViewButton, largerViewButton })
         {
-            button.Width = double.NaN;
-            button.Height = double.NaN;
+            button.Margin = new Thickness(0);
             button.FontSize = 8;
             viewControls.Children.Add(button);
         }
         smallerViewButton.Click += (_, _) => ChangeViewSize(smaller: true);
         largerViewButton.Click += (_, _) => ChangeViewSize(smaller: false);
-        Grid.SetRow(largerViewButton, 1);
-        Grid.SetColumn(viewControls, 1);
-        root.Children.Add(viewControls);
+        Grid.SetColumn(largerViewButton, 1);
+        leftControls.Children.Add(viewControls);
+        root.Children.Add(leftControls);
         dragHandle = new Border
         {
             Background = new SolidColorBrush(Color.FromRgb(54, 60, 70)),
@@ -138,12 +142,26 @@ public sealed class DeckWindow : Window
         panelMenu.Items.Add(settingsItem);
         panelMenu.Items.Add(exitItem);
         dragHandle.ContextMenu = panelMenu;
-        dragHandle.MouseLeftButtonDown += (_, args) =>
+        dragHandle.MouseLeftButtonDown += DragPanel;
+        controlsDragHandle = new Border
         {
-            if (args.ClickCount != 1) return;
-            DragMove();
-            SnapAndSavePosition();
+            Background = dragHandle.Background,
+            Cursor = Cursors.SizeAll,
+            ContextMenu = panelMenu,
+            Margin = new Thickness(0, 2, 0, 0),
+            Child = new TextBlock
+            {
+                Text = "::::",
+                FontSize = 8,
+                Foreground = Brushes.LightGray,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            }
         };
+        System.Windows.Automation.AutomationProperties.SetName(controlsDragHandle, "Move VSC Deck below size controls");
+        controlsDragHandle.MouseLeftButtonDown += DragPanel;
+        Grid.SetRow(controlsDragHandle, 1);
+        leftControls.Children.Add(controlsDragHandle);
         Grid.SetColumn(dragHandle, 2);
         Grid.SetRowSpan(dragHandle, 2);
         root.Children.Add(dragHandle);
@@ -1021,17 +1039,13 @@ public sealed class DeckWindow : Window
 
     private void UpdateViewMode()
     {
-        var compact = settings.ButtonSize < 64;
-        var mini = settings.ButtonSize == 20;
-        smallerViewButton.Visibility = mini ? Visibility.Collapsed : Visibility.Visible;
+        controlsDragHandle.Visibility = settings.ButtonSize == 20 ? Visibility.Collapsed : Visibility.Visible;
         smallerViewButton.IsEnabled = settings.ButtonSize > 20;
         largerViewButton.IsEnabled = settings.ButtonSize < 64;
-        Grid.SetRow(largerViewButton, mini ? 0 : 1);
-        Grid.SetRowSpan(largerViewButton, mini ? 2 : 1);
-        scroll.Margin = compact ? new Thickness(3, 3, 0, 3) : new Thickness(3);
+        scroll.Margin = new Thickness(3, 3, 0, 3);
         var dpi = VisualTreeHelper.GetDpi(this);
-        smallerViewButton.MinWidth = largerViewButton.MinWidth = 16 / dpi.DpiScaleX;
-        smallerViewButton.MinHeight = largerViewButton.MinHeight = 8 / dpi.DpiScaleY;
+        smallerViewButton.Width = largerViewButton.Width = 16 / dpi.DpiScaleX;
+        smallerViewButton.Height = largerViewButton.Height = 20 / dpi.DpiScaleY;
         smallerViewButton.FontSize = largerViewButton.FontSize = 8 / dpi.DpiScaleY;
         dragHandle.Width = 16 / dpi.DpiScaleX;
     }
@@ -1049,6 +1063,13 @@ public sealed class DeckWindow : Window
         settings.Left = Left;
         settings.Top = Top;
         SaveSettings();
+    }
+
+    private void DragPanel(object sender, MouseButtonEventArgs args)
+    {
+        if (args.ClickCount != 1) return;
+        DragMove();
+        SnapAndSavePosition();
     }
 
     private void SnapAndSavePosition()

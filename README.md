@@ -30,10 +30,14 @@ no workspace name, status text, or session count. It retains the same status
 colors, animations, hover details, and activation behavior as the larger views.
 Like Compact, it has no title bar or reorder grips.
 
-View controls appear at the right. Up steps to a smaller view
-(Large → Compact → Mini); down steps to a larger view. Mini hides the up arrow
-and lets the down button use the available height, keeping the bar compact.
-Compact and Large show both arrows; down is disabled in Large.
+View controls appear side by side at the left, with fixed 16 x 20 physical-pixel
+bounds and top alignment so they stay in place as the view changes. Up steps to a smaller view
+(Large → Compact → Mini); down steps to a larger view. Both arrows remain visible
+in every view: up is disabled in Mini and down is disabled in Large. Neither
+control exceeds the Mini tiles' height. The arrows are vertically centered on
+the Mini tiles and retain that position in Compact and Large. In those larger
+views, the space below the arrows is an additional panel drag grip; Mini has
+no grip below the arrows.
 
 ## Using the panel
 
