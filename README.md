@@ -96,8 +96,10 @@ Compact and Large show both arrows; down is disabled in Large.
   remain separate buttons when both are open.
 - Drag the title grip to move the always-on-top panel.
 - When **Snap to screen edges** is enabled in Settings, moving the panel within
-  24 physical pixels of any monitor edge snaps it flush to that edge, without a
-  gap. Snapping is enabled by default.
+  24 physical pixels of any monitor edge or the top of a bottom taskbar snaps
+  it flush to the closest edge, without a gap. Equal-distance targets prefer
+  the screen edge. Top, left, and right taskbars are not additional targets.
+  Snapping is enabled by default.
 - **Large** view uses 64 x 64 physical-pixel buttons and includes the title bar,
   settings, close button, and reorder grips. Use the up arrow to switch to
   Compact view.

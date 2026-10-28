@@ -172,10 +172,11 @@ internal static class NativeWindows
     internal static PixelOffset SnapToMonitorEdges(nint hwnd, int threshold)
     {
         var window = GetWindowBounds(hwnd);
-        var offset = CalculateSnapOffset(window, GetMonitorBounds(hwnd), threshold);
+        var monitor = ReadMonitorInfo(hwnd);
+        var offset = CalculateSnapOffset(window, monitor.Monitor, threshold, monitor.Work);
         if (offset != default && !SetWindowPos(hwnd, 0, window.Left + offset.X, window.Top + offset.Y,
             0, 0, 0x0001 | 0x0004 | 0x0010))
-            throw new Win32Exception(Marshal.GetLastWin32Error(), "Unable to snap VSC Deck to the monitor edge.");
+            throw new Win32Exception(Marshal.GetLastWin32Error(), "Unable to snap VSC Deck to the screen or taskbar edge.");
         return offset;
     }
 
@@ -186,22 +187,36 @@ internal static class NativeWindows
         return bounds;
     }
 
-    internal static PixelRect GetMonitorBounds(nint hwnd)
+    internal static PixelRect GetMonitorBounds(nint hwnd) => ReadMonitorInfo(hwnd).Monitor;
+
+    internal static PixelRect GetMonitorWorkArea(nint hwnd) => ReadMonitorInfo(hwnd).Work;
+
+    private static MonitorInfo ReadMonitorInfo(nint hwnd)
     {
         var monitor = MonitorFromWindow(hwnd, 2);
         if (monitor == 0) throw new Win32Exception("Unable to identify the monitor containing the window.");
         var info = new MonitorInfo { Size = (uint)Marshal.SizeOf<MonitorInfo>() };
         if (!GetMonitorInfo(monitor, ref info))
             throw new Win32Exception(Marshal.GetLastWin32Error(), "Unable to read the monitor bounds.");
-        return info.Monitor;
+        return info;
     }
 
-    internal static PixelOffset CalculateSnapOffset(PixelRect window, PixelRect monitor, int threshold)
+    internal static PixelOffset CalculateSnapOffset(PixelRect window, PixelRect monitor, int threshold,
+        PixelRect? workArea = null)
     {
         var x = Math.Abs(window.Left - monitor.Left) <= threshold ? monitor.Left - window.Left :
             Math.Abs(window.Right - monitor.Right) <= threshold ? monitor.Right - window.Right : 0;
-        var y = Math.Abs(window.Top - monitor.Top) <= threshold ? monitor.Top - window.Top :
-            Math.Abs(window.Bottom - monitor.Bottom) <= threshold ? monitor.Bottom - window.Bottom : 0;
-        return new PixelOffset(x, y);
+        int? y = null;
+        ConsiderVerticalOffset(monitor.Top - window.Top);
+        ConsiderVerticalOffset(monitor.Bottom - window.Bottom);
+        if (workArea is { } work && work.Bottom > monitor.Top && work.Bottom < monitor.Bottom)
+            ConsiderVerticalOffset(work.Bottom - window.Bottom);
+        return new PixelOffset(x, y ?? 0);
+
+        void ConsiderVerticalOffset(int offset)
+        {
+            if (Math.Abs(offset) <= threshold && (y is null || Math.Abs(offset) < Math.Abs(y.Value)))
+                y = offset;
+        }
     }
 }

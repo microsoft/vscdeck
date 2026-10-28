@@ -934,6 +934,37 @@ internal static class Program
                 NativeWindows.CalculateSnapOffset(
                     new(-425, 555, -25, 855), monitor, 24) == default,
                 "Windows 25 pixels from the screen edge do not snap");
+            var workArea = new NativeWindows.PixelRect(-1920, -200, 0, 840);
+            foreach (var delta in new[] { -24, 0, 24 })
+            {
+                var bottom = workArea.Bottom + delta;
+                var expected = delta == 24 ? 16 : -delta;
+                Check(NativeWindows.CalculateSnapOffset(
+                    new(-1000, bottom - 100, -600, bottom), monitor, 24, workArea) ==
+                    new NativeWindows.PixelOffset(0, expected),
+                    $"The nearest bottom screen or taskbar edge wins at taskbar offset {delta}");
+            }
+            Check(NativeWindows.CalculateSnapOffset(new(-1000, 750, -600, 850), monitor, 24, workArea) ==
+                new NativeWindows.PixelOffset(0, -10),
+                "The taskbar edge wins when the screen edge is outside the threshold");
+            Check(NativeWindows.CalculateSnapOffset(new(-1000, 770, -600, 870), monitor, 24, workArea) ==
+                new NativeWindows.PixelOffset(0, 10),
+                "The screen edge wins when the taskbar edge is outside the threshold");
+            Check(NativeWindows.CalculateSnapOffset(new(-1000, 760, -600, 860), monitor, 24, workArea) ==
+                new NativeWindows.PixelOffset(0, 20),
+                "Equal-distance bottom targets retain the screen-edge preference");
+            Check(NativeWindows.CalculateSnapOffset(new(-1000, 715, -600, 815), monitor, 24, workArea) == default,
+                "A window outside both bottom snap thresholds remains unmoved");
+            foreach (var otherWorkArea in new[]
+                {
+                    monitor,
+                    new NativeWindows.PixelRect(-1880, -200, 0, 880),
+                    new NativeWindows.PixelRect(-1920, -160, 0, 880),
+                    new NativeWindows.PixelRect(-1920, -200, -40, 880)
+                })
+                Check(NativeWindows.CalculateSnapOffset(
+                    new(-1870, -150, -1470, -50), monitor, 24, otherWorkArea) == default,
+                    "No taskbar or a top/side taskbar adds no new snap targets");
             target.Show();
             CheckScreenEdgeSnapping(new WindowInteropHelper(target).Handle);
             Console.WriteLine($"All {checks} snapping checks passed without interacting with VS Code.");
@@ -967,12 +998,24 @@ internal static class Program
             NativeWindows.GetWindowBounds(handle) is var topLeft &&
             topLeft.Left == screen.Left && topLeft.Top == screen.Top,
             "A real window within 24 physical pixels snaps flush to the top and left screen edges");
-        Check(SetWindowPos(handle, 0, screen.Right - width - 24, screen.Bottom - height - 24,
-            width, height, 0x0004 | 0x0010), "Test window positioned 24 px from the bottom-right screen edges");
-        Check(DeckWindow.ApplyScreenEdgeSnap(handle, true) == new NativeWindows.PixelOffset(24, 24) &&
+        Check(SetWindowPos(handle, 0, screen.Right - width - 24, screen.Bottom - height,
+            width, height, 0x0004 | 0x0010), "Test window positioned at the bottom and 24 px from the right screen edge");
+        Check(DeckWindow.ApplyScreenEdgeSnap(handle, true) == new NativeWindows.PixelOffset(24, 0) &&
             NativeWindows.GetWindowBounds(handle) is var bottomRight &&
             bottomRight.Right == screen.Right && bottomRight.Bottom == screen.Bottom,
-            "A real window within 24 physical pixels snaps flush to the bottom and right screen edges");
+            "A real window retains the bottom screen edge while snapping flush to the right");
+        var workArea = NativeWindows.GetMonitorWorkArea(handle);
+        if (workArea.Bottom < screen.Bottom)
+        {
+            Check(SetWindowPos(handle, 0, screen.Left + 100, workArea.Bottom - height - 10,
+                width, height, 0x0004 | 0x0010), "Test window positioned 10 px above the bottom taskbar");
+            Check(DeckWindow.ApplyScreenEdgeSnap(handle, false) == default &&
+                NativeWindows.GetWindowBounds(handle).Bottom == workArea.Bottom - 10,
+                "Disabled snapping does not snap to the taskbar");
+            Check(DeckWindow.ApplyScreenEdgeSnap(handle, true) == new NativeWindows.PixelOffset(0, 10) &&
+                NativeWindows.GetWindowBounds(handle).Bottom == workArea.Bottom,
+                "A real window snaps flush above the bottom taskbar");
+        }
         Check(SetWindowPos(handle, 0, screen.Left + 25, screen.Top + 25, width, height, 0x0004 | 0x0010),
             "Test window positioned just outside the 24 px threshold");
         Check(DeckWindow.ApplyScreenEdgeSnap(handle, true) == default &&
