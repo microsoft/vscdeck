@@ -12,14 +12,14 @@ There is no public network service and nothing is uploaded to external services.
 ![VSC Deck in Large view with six VS Code workspace buttons](docs/images/vscdeck-large.png)
 
 Large view uses 64 x 64 physical-pixel buttons with a fixed three-line layout:
-position, workspace name, and state. It also provides the title bar, settings
-and close actions, and workspace reorder grips.
+position, workspace name, and state. It also provides workspace reorder grips.
+There is no title bar or Settings/Close button.
 
 ### Compact
 
 ![VSC Deck in Compact view with six VS Code workspace buttons](docs/images/vscdeck-compact.png)
 
-Compact view uses 32 x 32 physical-pixel buttons and removes the title bar and
+Compact view uses 32 x 32 physical-pixel buttons without
 reorder grips. Tiles show their position and status text. The narrow strip at
 the right moves the panel.
 
@@ -28,7 +28,7 @@ the right moves the panel.
 Mini view uses 20 x 20 physical-pixel buttons with only the position number:
 no workspace name, status text, or session count. It retains the same status
 colors, animations, hover details, and activation behavior as the larger views.
-Like Compact, it hides the title bar and reorder grips.
+Like Compact, it has no title bar or reorder grips.
 
 View controls appear at the right. Up steps to a smaller view
 (Large → Compact → Mini); down steps to a larger view. Mini hides the up arrow
@@ -94,14 +94,15 @@ Compact and Large show both arrows; down is disabled in Large.
   relationships, so it survives temporarily closed workspaces. A local folder
   and its local Docker Dev Container view retain the same project position but
   remain separate buttons when both are open.
-- Drag the title grip to move the always-on-top panel.
+- Drag the 16-pixel strip at the right edge to move the always-on-top panel in
+  any view. Right-click that strip for **Settings** or **Exit**.
 - When **Snap to screen edges** is enabled in Settings, moving the panel within
   24 physical pixels of any monitor edge or the top of a bottom taskbar snaps
   it flush to the closest edge, without a gap. Equal-distance targets prefer
   the screen edge. Top, left, and right taskbars are not additional targets.
   Snapping is enabled by default.
-- **Large** view uses 64 x 64 physical-pixel buttons and includes the title bar,
-  settings, close button, and reorder grips. Use the up arrow to switch to
+- **Large** view uses 64 x 64 physical-pixel buttons and includes
+  reorder grips, but no title bar or Settings/Close buttons. Use the up arrow to switch to
   Compact view.
 - **Compact** view uses 32 x 32 physical-pixel buttons without a title bar. Use
   the down arrow to return to Large view, the up arrow to switch to Mini, or
@@ -125,7 +126,8 @@ Compact and Large show both arrows; down is disabled in Large.
 - Enable **Start VSC Deck when I sign in to Windows** to register the current
   executable in the current user's Windows startup settings. This option does
   not require administrator rights and is disabled by default.
-- **X** closes only VSC Deck. It does not affect any VS Code process.
+- **Exit** in the drag-strip or notification-area menu closes only VSC Deck.
+  It does not affect any VS Code process.
 - VSC Deck runs as a single instance per Windows user. Starting it again shows
   an “already running” message and exits without disturbing the existing panel.
 

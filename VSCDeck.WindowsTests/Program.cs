@@ -302,28 +302,13 @@ internal static class Program
                 "Panel remains on screen after expanding to discovered windows");
             var dpi = VisualTreeHelper.GetDpi(deck);
             var compactToggle = Descendants<Button>(deck).Single(b => Equals(b.Content, "▲"));
-            var settingsButton = Descendants<Button>(deck).Single(b =>
-                System.Windows.Automation.AutomationProperties.GetName(b) == "Settings");
-            var closeButton = Descendants<Button>(deck).Single(b =>
-                System.Windows.Automation.AutomationProperties.GetName(b) == "Close VSC Deck");
             Check(compactToggle.IsVisible && compactToggle.IsEnabled &&
                 !Descendants<Button>(deck).Single(b => Equals(b.Content, "▼")).IsEnabled,
                 "Large view shows both arrows and disables the larger-view button");
-            Check(new[] { settingsButton, closeButton }.All(b =>
-                    Math.Abs(b.ActualWidth - b.ActualHeight) < .1 &&
-                    Math.Abs(b.ActualWidth - settingsButton.ActualWidth) < .1 &&
-                    b.BorderThickness == new Thickness(0) &&
-                    b.Template.FindName("CaptionSurface", b) is Border { Background: SolidColorBrush brush } &&
-                    brush.Color.A == 0),
-                "Large title-bar actions are equal square, flat Windows-style caption buttons");
-            Check(new FrameworkElement[]
-                {
-                    compactToggle,
-                    settingsButton,
-                    closeButton,
-                    Descendants<TextBlock>(deck).Single(t => t.Text == "VSC Deck  ::")
-                }.All(element => element.ToolTip is null),
-                "Large title-bar controls have no tooltips");
+            Check(!Descendants<TextBlock>(deck).Any(t => t.Text == "VSC Deck  ::") &&
+                !Descendants<Button>(deck).Any(b =>
+                    System.Windows.Automation.AutomationProperties.GetName(b) is "Settings" or "Close VSC Deck"),
+                "Large view has no title bar, settings button, or close button");
             Check(tileButtons.All(b => Math.Abs(b.ActualWidth * dpi.DpiScaleX - 64) < .1 &&
                 Math.Abs(b.ActualHeight * dpi.DpiScaleY - 64) < .1), "All large buttons are exactly 64 x 64 physical pixels");
             Check(tileButtons.Select(FocusMarker).All(marker =>
@@ -632,7 +617,7 @@ internal static class Program
                 "Compact view hides the title bar, settings button, and close button");
             var largeToggle = Descendants<Button>(compact).Single(b => Equals(b.Content, "▼"));
             var moveGrip = Descendants<Border>(compact).Single(b =>
-                System.Windows.Automation.AutomationProperties.GetName(b) == "Move compact view");
+                System.Windows.Automation.AutomationProperties.GetName(b) == "Move VSC Deck");
             Check(largeToggle.ToolTip is null && moveGrip.ToolTip is null,
                 "Compact toggle and drag handle have no tooltips");
             Check(largeToggle.BorderThickness == new Thickness(0) &&
@@ -649,13 +634,13 @@ internal static class Program
             largeToggle.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             PumpUntil(() => compactSettings.ButtonSize == 64 && TileButtons(compact).All(b =>
                 Math.Abs(b.ActualWidth * dpi.DpiScaleX - 64) < .1));
-            Check(Descendants<TextBlock>(compact).Any(t => t.Text == "VSC Deck  ::"),
-                "Compact expand button switches to large view");
+            Check(!Descendants<TextBlock>(compact).Any(t => t.Text == "VSC Deck  ::"),
+                "Switching to large view does not restore a title bar");
             Descendants<Button>(compact).Single(b => Equals(b.Content, "▲"))
                 .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             PumpUntil(() => compactSettings.ButtonSize == 32 && TileButtons(compact).All(b =>
                 Math.Abs(b.ActualWidth * dpi.DpiScaleX - 32) < .1));
-            Check(!Descendants<TextBlock>(compact).Single(t => t.Text == "VSC Deck  ::").IsVisible,
+            Check(!Descendants<TextBlock>(compact).Any(t => t.Text == "VSC Deck  ::"),
                 "Large compact button switches back to compact view");
             compact.Close();
 
@@ -758,6 +743,21 @@ internal static class Program
                 Check(settings.ButtonSize == size, $"View navigation reaches and stays within {size}-pixel bounds");
                 var dpi = VisualTreeHelper.GetDpi(deck);
                 var buttons = Descendants<Button>(root).Where(b => b.Content is TextBlock).ToArray();
+                Check(!Descendants<TextBlock>(root).Any(t => t.Text == "VSC Deck  ::") &&
+                    !Descendants<Button>(root).Any(b =>
+                        System.Windows.Automation.AutomationProperties.GetName(b) is "Settings" or "Close VSC Deck"),
+                    $"The {size}-pixel view has no title bar or caption action buttons");
+                Check(buttons.All(b => Math.Abs(b.TranslatePoint(new Point(), root).Y - 3) < .1),
+                    $"The {size}-pixel tiles start at the top margin without a title-bar gap");
+                var grip = Descendants<Border>(root).Single(b =>
+                    System.Windows.Automation.AutomationProperties.GetName(b) == "Move VSC Deck");
+                Check(grip.Visibility == Visibility.Visible &&
+                    Math.Abs(grip.ActualWidth * dpi.DpiScaleX - 16) < .1 &&
+                    Math.Abs(grip.ActualHeight - root.ActualHeight) < .1,
+                    $"The {size}-pixel view retains a full-height drag handle");
+                Check(grip.ContextMenu is { } menu &&
+                    menu.Items.OfType<MenuItem>().Select(item => item.Header).SequenceEqual(["Settings", "Exit"]),
+                    $"The {size}-pixel view retains Settings and Exit through the drag-handle menu");
                 Check(buttons.Length == 16 && buttons.All(b =>
                         Math.Abs(b.ActualWidth * dpi.DpiScaleX - size) < .1 &&
                         Math.Abs(b.ActualHeight * dpi.DpiScaleY - size) < .1),
@@ -775,7 +775,7 @@ internal static class Program
                     var column = (StackPanel)VisualTreeHelper.GetParent(buttons[0]);
                     Check(controls.ActualHeight <= column.ActualHeight + .1,
                         "Mini controls add no height beyond the tiles and workspace color stripe");
-                    Check(((Grid)root).RowDefinitions[1].ActualHeight <=
+                    Check(((Grid)root).RowDefinitions[0].ActualHeight <=
                         column.ActualHeight + controls.Margin.Top + controls.Margin.Bottom + .1,
                         "Mini tile row has no extra vertical space from the hidden up button");
                 }

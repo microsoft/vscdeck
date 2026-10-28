@@ -36,19 +36,16 @@ public sealed class DeckWindow : Window
     private CopilotMonitor monitor;
     private readonly StackPanel buttons = new() { Orientation = Orientation.Horizontal, AllowDrop = true };
     private readonly TextBlock notice = new() { Foreground = Brushes.Gold, FontSize = 10, Margin = new(6, 0, 6, 3), MaxWidth = 520 };
-    private readonly DockPanel header;
     private readonly ScrollViewer scroll;
     private readonly Button smallerViewButton;
     private readonly Button largerViewButton;
-    private readonly Border compactDragHandle;
+    private readonly Border dragHandle;
     private readonly DispatcherTimer timer = new() { Interval = TimeSpan.FromMilliseconds(750) };
     private readonly List<Tile> tiles = [];
     private readonly List<int> registered = [];
     private readonly Dictionary<int, nint> hotkeyTargets = [];
     private static readonly ControlTemplate CaptionButtonTemplate = CreateCaptionButtonTemplate(
         Color.FromRgb(63, 69, 79), Color.FromRgb(76, 83, 94));
-    private static readonly ControlTemplate CloseButtonTemplate = CreateCaptionButtonTemplate(
-        Color.FromRgb(196, 43, 28), Color.FromRgb(160, 35, 24));
     private static readonly ControlTemplate TileTemplate = CreateTileTemplate();
     private List<Hotkey> hotkeys;
     private HwndSource? source;
@@ -96,31 +93,9 @@ public sealed class DeckWindow : Window
         root.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        header = new DockPanel { Background = new SolidColorBrush(Color.FromRgb(40, 45, 55)) };
-        var close = CreateCaptionButton("×", "Close VSC Deck", CloseButtonTemplate);
-        close.Click += (_, _) => Close();
-        DockPanel.SetDock(close, Dock.Right);
-        header.Children.Add(close);
-        var options = CreateCaptionButton("⚙", "Settings", CaptionButtonTemplate);
-        options.Click += async (_, _) => await OpenSettings();
-        DockPanel.SetDock(options, Dock.Right);
-        header.Children.Add(options);
-        var caption = new TextBlock { Text = "VSC Deck  ::", FontSize = 12, Margin = new(8, 5, 16, 5),
-            Cursor = Cursors.SizeAll };
-        caption.MouseLeftButtonDown += (_, args) =>
-        {
-            if (args.ClickCount != 1) return;
-            DragMove();
-            SnapAndSavePosition();
-        };
-        header.Children.Add(caption);
-        Grid.SetColumnSpan(header, 3);
-        root.Children.Add(header);
         scroll = new ScrollViewer { Content = buttons, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
             VerticalScrollBarVisibility = ScrollBarVisibility.Disabled, Margin = new(3) };
         var adornerDecorator = new AdornerDecorator { Child = scroll };
-        Grid.SetRow(adornerDecorator, 1);
         root.Children.Add(adornerDecorator);
         buttons.DragOver += ButtonsDragOver;
         buttons.DragLeave += ButtonsDragLeave;
@@ -140,10 +115,9 @@ public sealed class DeckWindow : Window
         smallerViewButton.Click += (_, _) => ChangeViewSize(smaller: true);
         largerViewButton.Click += (_, _) => ChangeViewSize(smaller: false);
         Grid.SetRow(largerViewButton, 1);
-        Grid.SetRow(viewControls, 1);
         Grid.SetColumn(viewControls, 1);
         root.Children.Add(viewControls);
-        compactDragHandle = new Border
+        dragHandle = new Border
         {
             Background = new SolidColorBrush(Color.FromRgb(54, 60, 70)),
             Cursor = Cursors.SizeAll,
@@ -155,17 +129,25 @@ public sealed class DeckWindow : Window
                 VerticalAlignment = VerticalAlignment.Center
             }
         };
-        System.Windows.Automation.AutomationProperties.SetName(compactDragHandle, "Move compact view");
-        compactDragHandle.MouseLeftButtonDown += (_, args) =>
+        System.Windows.Automation.AutomationProperties.SetName(dragHandle, "Move VSC Deck");
+        var panelMenu = new ContextMenu();
+        var settingsItem = new MenuItem { Header = "Settings" };
+        settingsItem.Click += async (_, _) => await OpenSettings();
+        var exitItem = new MenuItem { Header = "Exit" };
+        exitItem.Click += (_, _) => Close();
+        panelMenu.Items.Add(settingsItem);
+        panelMenu.Items.Add(exitItem);
+        dragHandle.ContextMenu = panelMenu;
+        dragHandle.MouseLeftButtonDown += (_, args) =>
         {
             if (args.ClickCount != 1) return;
             DragMove();
             SnapAndSavePosition();
         };
-        Grid.SetColumn(compactDragHandle, 2);
-        Grid.SetRowSpan(compactDragHandle, 3);
-        root.Children.Add(compactDragHandle);
-        Grid.SetRow(notice, 2);
+        Grid.SetColumn(dragHandle, 2);
+        Grid.SetRowSpan(dragHandle, 2);
+        root.Children.Add(dragHandle);
+        Grid.SetRow(notice, 1);
         Grid.SetColumnSpan(notice, 2);
         root.Children.Add(notice);
         Content = root;
@@ -1041,19 +1023,17 @@ public sealed class DeckWindow : Window
     {
         var compact = settings.ButtonSize < 64;
         var mini = settings.ButtonSize == 20;
-        header.Visibility = compact ? Visibility.Collapsed : Visibility.Visible;
         smallerViewButton.Visibility = mini ? Visibility.Collapsed : Visibility.Visible;
         smallerViewButton.IsEnabled = settings.ButtonSize > 20;
         largerViewButton.IsEnabled = settings.ButtonSize < 64;
         Grid.SetRow(largerViewButton, mini ? 0 : 1);
         Grid.SetRowSpan(largerViewButton, mini ? 2 : 1);
-        compactDragHandle.Visibility = compact ? Visibility.Visible : Visibility.Collapsed;
         scroll.Margin = compact ? new Thickness(3, 3, 0, 3) : new Thickness(3);
         var dpi = VisualTreeHelper.GetDpi(this);
         smallerViewButton.MinWidth = largerViewButton.MinWidth = 16 / dpi.DpiScaleX;
         smallerViewButton.MinHeight = largerViewButton.MinHeight = 8 / dpi.DpiScaleY;
         smallerViewButton.FontSize = largerViewButton.FontSize = 8 / dpi.DpiScaleY;
-        compactDragHandle.Width = 16 / dpi.DpiScaleX;
+        dragHandle.Width = 16 / dpi.DpiScaleX;
     }
 
     private void ClampPosition()
