@@ -1093,6 +1093,16 @@ internal static partial class Program
                 "Spike24 discovery matches its window and prefers remoteUser over the container root user");
             Check(RemoteSourceDiscovery.ParseContainers(json, "desktop-linux", null, []).Count == 0,
                 "Discovery does not add containers without an open matching window");
+            const string hyphenatedTitle = "1793249191978.jpg - spike26_kbankiq [Dev Container: Debian - Azure CLI, Terraform, Python @ desktop-linux] - Visual Studio Code";
+            var hyphenatedWindow = new CodeWindow(7, 0, hyphenatedTitle,
+                Identity.ProjectFromTitle(hyphenatedTitle), null);
+            var hyphenatedJson = json.Replace("spike24_gemini_metrics", "spike26_kbankiq");
+            var hyphenatedSources = RemoteSourceDiscovery.ParseContainers(
+                hyphenatedJson, "desktop-linux", null, [hyphenatedWindow]);
+            Check(RemoteSourceDiscovery.WindowHost(hyphenatedWindow) == "desktop-linux" &&
+                hyphenatedSources is [{ Project: "spike26_kbankiq" }] &&
+                hyphenatedSources[0].Matches(hyphenatedWindow),
+                "A real title with a hyphenated container name discovers and matches its local Docker source");
             var sshWindow = new CodeWindow(3, 0, "juno59_nlwf [SSH: devbox] - Visual Studio Code",
                 "juno59_nlwf [SSH: devbox]", null);
             var sshJson = JsonSerializer.Serialize(new
@@ -1257,8 +1267,9 @@ internal static partial class Program
             if (option + 1 >= args.Length)
                 throw new ArgumentException("--runtime-discovery-live requires the project name of an open dev-container window.");
             var project = args[option + 1];
-            Check(settings.RemoteSources.Any(source => source.Project == project),
-                "The live test project has a saved source that can be omitted from the test monitor");
+            Check(NativeWindows.Discover().Any(window => window.Project.StartsWith(project + " [",
+                    StringComparison.OrdinalIgnoreCase)),
+                "The live test project has an open dev-container window");
             var configured = settings.RemoteSources.Where(source => source.Project != project).ToList();
             using var monitor = new CopilotMonitor(configured);
             var deadline = DateTimeOffset.UtcNow.AddSeconds(90);

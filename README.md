@@ -250,7 +250,9 @@ are reported instead of guessed. Python 3 is still required on the SSH host.
 
 Containers are found by the `devcontainer.local_folder` label, not hard-coded
 container IDs, so a rebuilt container can be rediscovered. Remote window titles
-must match the project and Docker/SSH host. Initial history reads run in the
+must match the project and Docker/SSH host.
+Hyphens within the Dev Container name are supported and do not separate the
+workspace from its remote annotation. Initial history reads run in the
 background, without delaying discovery of local windows. Subsequent reads
 transfer only new events and only the fields needed for state, descriptions,
 and questions. Remote polling is every three seconds after the previous poll

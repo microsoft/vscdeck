@@ -85,6 +85,19 @@ Check(Identity.ProjectFromTitle("file.cs - Project - Visual Studio Code") == "Pr
 Check(Identity.ProjectFromTitle("Project - Visual Studio Code") == "Project", "Workspace extracted from simple title");
 Check(Identity.ProjectFromTitle("Project - Visual Studio Code - Insiders") == "Project", "Insiders title parsing");
 Check(Identity.ProjectFromTitle("Visual Studio Code") == "VS Code", "Empty VS Code window identity");
+const string containerProject = "spike26_kbankiq [Dev Container: Debian - Azure CLI, Terraform, Python @ desktop-linux]";
+Check(Identity.ProjectFromTitle("1793249191978.jpg - " + containerProject + " - Visual Studio Code") == containerProject,
+    "Hyphenated dev-container names retain the workspace and complete remote annotation");
+Check(Identity.ProjectFromTitle(containerProject + " - Visual Studio Code - Insiders") == containerProject,
+    "Hyphenated dev-container names work without an editor title in Insiders");
+Check(Identity.ProjectFromTitle("file - copy.cs - " + containerProject + " - Visual Studio Code") == containerProject,
+    "Editor title separators do not become part of the dev-container workspace");
+Check(Identity.ProjectFromTitle(("file.cs - " + containerProject + " - Visual Studio Code").Replace(" - ", " \u2014 ")) == containerProject,
+    "Em-dash title separators preserve the complete normalized remote annotation");
+Check(Identity.ProjectFromTitle("file.cs - Project [SSH: host - alias] - Visual Studio Code") ==
+    "Project [SSH: host - alias]", "SSH annotations retain internal title separators");
+Check(Identity.ProjectFromTitle("file.cs - Project [Dev Container: Debian @ desktop-linux] - Visual Studio Code") ==
+    "Project [Dev Container: Debian @ desktop-linux]", "Existing dev-container title parsing is preserved");
 var relations = Identity.RelationsFor(["juno58", "juno57", "juno56"]);
 Check(Identity.Sort(["juno56", "juno58"], relations, item => item).SequenceEqual(["juno58", "juno56"]),
     "Relative ordering survives a missing workspace");

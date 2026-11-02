@@ -142,7 +142,17 @@ public static class Identity
         var index = parts.Length - 2;
         if (parts[^1].Equals("Insiders", StringComparison.OrdinalIgnoreCase) && parts.Length >= 3)
             index--;
-        return parts[Math.Max(0, index)].Trim().TrimStart('\u25cf', '*').Trim();
+        index = Math.Max(0, index);
+        var project = parts[index];
+        if (project.EndsWith(']'))
+            for (var start = index; start >= 0; start--)
+                if (parts[start].Contains(" [Dev Container:", StringComparison.OrdinalIgnoreCase) ||
+                    parts[start].Contains(" [SSH:", StringComparison.OrdinalIgnoreCase))
+                {
+                    project = string.Join(" - ", parts[start..(index + 1)]);
+                    break;
+                }
+        return project.Trim().TrimStart('\u25cf', '*').Trim();
     }
 
     public static List<T> Sort<T>(IReadOnlyList<T> items, IReadOnlyList<RelativeOrder> relations,
