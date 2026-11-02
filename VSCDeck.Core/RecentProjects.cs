@@ -82,7 +82,7 @@ public sealed class RecentProjects
         configurations.Values.GroupBy(usage => usage.Configuration.ProjectIdentity, StringComparer.OrdinalIgnoreCase)
             .OrderByDescending(group => group.Max(usage => usage.LastAccessed))
             .ThenBy(group => group.Key, StringComparer.OrdinalIgnoreCase)
-            .Take(10)
+            .Take(20)
             .Select(group => group.OrderByDescending(usage => usage.ForegroundTicks)
                 .ThenByDescending(usage => usage.LastAccessed)
                 .ThenBy(usage => usage.Configuration.Id, StringComparer.Ordinal)

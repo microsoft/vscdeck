@@ -41,14 +41,14 @@ no grip below the arrows.
 
 ### Recent projects
 
-The **+** button after the workspace buttons opens a menu of the ten most
+The **+** button after the workspace buttons opens a menu of the twenty most
 recently accessed project identities. A project appears only once: Deck offers
 its configuration with the most accumulated foreground time, even if a different
 configuration was used more recently. For example, a project used longer in a
 Dev Container than locally will be offered in that Dev Container. Ties prefer
 the configuration accessed most recently. Accessing any configuration makes
 its project recent again.
-Recency determines which ten projects qualify, not their display order. Menu
+Recency determines which twenty projects qualify, not their display order. Menu
 entries follow the same saved relative ordering as the button bar, including
 projects that are currently closed. Unordered entries follow the current bar
 order, then their recorded discovery order.
@@ -57,7 +57,7 @@ Deck records configurations as they are discovered, then samples foreground
 usage while running. Background windows do not accumulate time, and pauses
 longer than five seconds (including suspension) are not charged. It cannot
 recover usage time from before this feature was running. History retains all
-observed configurations and durations; only the menu is limited to ten projects.
+observed configurations and durations; only the menu is limited to twenty projects.
 
 Reopen targets come from VS Code's standard Code/Code Insiders workspace metadata.
 They retain the exact local folder or `.code-workspace` URI, SSH authority, or
@@ -349,7 +349,7 @@ physical-pixel dimensions, arrow limits, animations, and Mini persistence withou
 interacting with VS Code. They restore saved settings afterward. The isolated
 artifacts path avoids build-output locks while VSC Deck is running.
 The focused MRU checks verify usage accounting, configuration grouping, the
-ten-project menu limit, unbounded retained history, serialization, exact reopen
+twenty-project menu limit, unbounded retained history, serialization, exact reopen
 arguments, and existing-window routing without opening or activating VS Code.
 The focused logging checks reproduce the original concurrent-write race and
 verify serialized writes, compatible readers, exclusive locks, and recovery.

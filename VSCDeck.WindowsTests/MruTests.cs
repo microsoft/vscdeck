@@ -120,7 +120,7 @@ internal static partial class Program
             Check(history.Configurations.Sum(usage => usage.ForegroundTicks) == before, "Background and suspended intervals do not accrue use");
             history.Observe(configs, local.Configuration.Id, now.AddHours(2), TimeSpan.FromHours(1));
             Check(history.Configurations.Sum(usage => usage.ForegroundTicks) == before, "Long sampling gaps do not count as usage");
-            for (var index = 0; index < 12; index++)
+            for (var index = 0; index < 22; index++)
             {
                 var configuration = local.Configuration with
                 {
@@ -128,10 +128,15 @@ internal static partial class Program
                     WorkspaceUri = new Uri($@"C:\work\P{index}").AbsoluteUri
                 };
                 history.Observe([configuration], configuration.Id, now.AddHours(3).AddMinutes(index), TimeSpan.Zero);
+                if (index == 18)
+                    Check(history.MenuEntries().Count == 20 &&
+                        history.MenuEntries().Any(entry => entry == container.Configuration),
+                        "Exactly twenty project identities are displayed without dropping the oldest project");
             }
-            Check(history.MenuEntries().Count == 10 && history.MenuEntries()[0].Name == "P11" &&
-                history.MenuEntries()[^1].Name == "P2" && history.Configurations.Count == 14,
-                "Only ten recent projects are displayed while all configurations are retained");
+            Check(history.MenuEntries().Select(configuration => configuration.Name).SequenceEqual(
+                    Enumerable.Range(2, 20).Reverse().Select(index => $"P{index}")) &&
+                history.Configurations.Count == 24,
+                "Only the twenty most recent projects are displayed while all configurations are retained");
             var restored = new RecentProjects(JsonSerializer.Deserialize<List<ConfigurationUsage>>(
                 JsonSerializer.Serialize(history.Configurations))!);
             Check(restored.MenuEntries().SequenceEqual(history.MenuEntries()) &&
@@ -145,10 +150,10 @@ internal static partial class Program
             history.MarkSaved();
             Check(!history.IsDirty, "Saving clears the dirty flag");
             var ordered = history.OrderedMenuEntries(Identity.RelationsFor(
-                Enumerable.Range(0, 12).Select(index => $"p{index}")), []);
+                Enumerable.Range(0, 22).Select(index => $"p{index}")), []);
             Check(ordered.Select(configuration => configuration.Name).SequenceEqual(
-                Enumerable.Range(3, 9).Select(index => $"P{index}").Append("Project")),
-                "The ten eligible projects follow saved bar order rather than recency");
+                Enumerable.Range(3, 19).Select(index => $"P{index}").Append("Project")),
+                "The twenty eligible projects follow saved bar order rather than recency");
             var pair = new RecentProjects([
                 new() { Configuration = local.Configuration with { ButtonOrderIdentity = "a" }, LastAccessed = now },
                 new() { Configuration = other.Configuration with { ProjectIdentity = "other", ButtonOrderIdentity = "c" },
