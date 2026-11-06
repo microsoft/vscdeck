@@ -43,6 +43,7 @@ internal static partial class Program
         if (args.Contains("--remote-lifecycle-only")) return RunRemoteLifecycleTests();
         if (args.Contains("--logging-only")) return RunLoggingTests();
         if (args.Contains("--audio-only")) return RunAudioTests();
+        if (args.Contains("--chat-only")) return RunChatTests();
         if (args.Contains("--ssh-only")) return RunSshTests(args);
         var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
         var baseline = NativeWindows.Discover().Select(w => w.Handle).ToHashSet();
@@ -210,8 +211,10 @@ internal static partial class Program
                 return chatFocusWarning is null;
             }, 3000);
             var focusedChatInput = AutomationElement.FocusedElement;
-            var chatEditor = TreeWalker.ControlViewWalker.GetParent(focusedChatInput);
-            var chatSession = chatEditor is null ? null : TreeWalker.ControlViewWalker.GetParent(chatEditor);
+            var chatSession = TreeWalker.ControlViewWalker.GetParent(focusedChatInput);
+            while (chatSession is not null && !chatSession.Current.ClassName.StartsWith(
+                "interactive-session", StringComparison.Ordinal))
+                chatSession = TreeWalker.ControlViewWalker.GetParent(chatSession);
             Check(chatFocusWarning is null &&
                 focusedChatInput.Current.ControlType == ControlType.Edit &&
                 focusedChatInput.Current.ClassName == "native-edit-context" &&

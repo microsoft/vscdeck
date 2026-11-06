@@ -120,6 +120,10 @@ internal static class NativeWindows
         {
             var root = AutomationElement.FromHandle(hwnd);
             if (FindCopilotChatInput(root) is not null) return null;
+            var groups = root.FindAll(TreeScope.Descendants, new PropertyCondition(
+                AutomationElement.ControlTypeProperty, ControlType.Group));
+            foreach (AutomationElement group in groups)
+                if (IsVisibleChatSession(group)) return null;
             var buttons = root.FindAll(TreeScope.Descendants, new AndCondition(
                 new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Button),
                 new PropertyCondition(AutomationElement.NameProperty, "Toggle Chat")));
@@ -162,13 +166,18 @@ internal static class NativeWindows
             new PropertyCondition(AutomationElement.ClassNameProperty, "native-edit-context")));
         foreach (AutomationElement edit in edits)
         {
-            var editor = TreeWalker.ControlViewWalker.GetParent(edit);
-            var session = editor is null ? null : TreeWalker.ControlViewWalker.GetParent(editor);
-            if (session?.Current.ClassName.StartsWith("interactive-session",
-                StringComparison.Ordinal) == true) return edit;
+            if (edit.Current.IsOffscreen || !edit.Current.IsEnabled) continue;
+            for (var ancestor = TreeWalker.ControlViewWalker.GetParent(edit);
+                ancestor is not null && !Automation.Compare(ancestor, root);
+                ancestor = TreeWalker.ControlViewWalker.GetParent(ancestor))
+                if (IsVisibleChatSession(ancestor)) return edit;
         }
         return null;
     }
+
+    private static bool IsVisibleChatSession(AutomationElement element) =>
+        !element.Current.IsOffscreen &&
+        element.Current.ClassName.StartsWith("interactive-session", StringComparison.Ordinal);
 
     internal static PixelOffset SnapToMonitorEdges(nint hwnd, int threshold)
     {

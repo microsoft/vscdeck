@@ -128,8 +128,9 @@ than silently replaced.
   Compact and Mini views and three physical pixels high with rounded ends in Large view.
 - Click a button or press its global hotkey to bring its VS Code window forward.
   VSC Deck then focuses the GitHub Copilot Chat input so you can immediately
-  type or dictate. If that window is already foreground, the same action also
-  toggles maximize/restore.
+  type or dictate. An already-visible Chat panel stays open, including while
+  its input is being rendered after a window resize. If that window is already
+  foreground, the same action also toggles maximize/restore.
 - In **Large** view, drag the **grip below a button** onto another button to
   reorder it. A blue insertion marker shows the resulting position, including
   positions before the first and after the last button. The marker is hidden
@@ -323,6 +324,7 @@ dotnet run --project .\VSCDeck.Tests\VSCDeck.Tests.csproj -c Release
 dotnet run --project .\VSCDeck.WindowsTests\VSCDeck.WindowsTests.csproj -c Release
 dotnet run --project .\VSCDeck.WindowsTests\VSCDeck.WindowsTests.csproj -c Release -- --logging-only
 dotnet run --project .\VSCDeck.WindowsTests\VSCDeck.WindowsTests.csproj -c Release -- --audio-only
+dotnet run --project .\VSCDeck.WindowsTests\VSCDeck.WindowsTests.csproj -c Release --artifacts-path .\artifacts\validation -- --chat-only
 dotnet run --project .\VSCDeck.WindowsTests\VSCDeck.WindowsTests.csproj -c Release -- --discovery-only
 dotnet run --project .\VSCDeck.WindowsTests\VSCDeck.WindowsTests.csproj -c Release -- --snapping-only
 dotnet run --project .\VSCDeck.WindowsTests\VSCDeck.WindowsTests.csproj -c Release -- --pulse-only
@@ -353,6 +355,10 @@ twenty-project menu limit, unbounded retained history, serialization, exact reop
 arguments, and existing-window routing without opening or activating VS Code.
 The focused logging checks reproduce the original concurrent-write race and
 verify serialized writes, compatible readers, exclusive locks, and recovery.
+The focused chat checks use a disposable accessibility test window to verify
+original and wrapped input ancestry, focus, maximize/restore, a visible panel
+with a temporarily missing input, and opening a closed panel only once.
+They do not interact with VS Code or saved settings.
 The focused audio checks use temporary synthesized fixtures to exercise
 transition selection, optional sound folders, arbitrary WAV filenames,
 duplicate-file reporting and recovery,
